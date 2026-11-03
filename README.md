@@ -51,7 +51,9 @@ python -B -m app.main verify   --stamp 20261103T171000Z --business shop
 
 `evaluate` walks one end-to-end run: catalogue, business policy, host-evidence envelope,
 the four cores, and a binding record. `verify` re-checks that binding from the bytes on
-disk, without asking the kernel to decide again, and exits 5 if any link is broken.
+disk, without asking the kernel to decide again, and exits 5 if any link is broken. It
+also opens the kernel record and compares the verdict on display against it: the record
+is not only required to exist, it is required to agree.
 
 Two properties are worth stating because they are easy to assume and were once missing:
 
@@ -59,10 +61,14 @@ Two properties are worth stating because they are easy to assume and were once m
   offer price. The per-order limit is an upper bound; an amount under it is not thereby
   correct. `--amount-minor` is therefore a value to be checked, and an order that omits it
   takes the catalogue price with `amount_source=CATALOGUE`.
-* **The order is bound to the assessment, not attached to it.** The order's digest is
-  embedded in `request_id`, and the kernel derives `assessment_id` from the digest of the
-  request. Editing the order, swapping the proposal, or pairing a new order with an older
-  assessment all break that chain and are refused by `verify`.
+* **The order is bound to the assessment, not attached to it.** The order's digest occupies
+  its own segment of `request_id` -- the last one, immediately after the timestamp -- and the
+  kernel derives `assessment_id` from the digest of the request. `verify` checks three layers
+  in order: the binding against the bytes on disk, those bytes against the digests the
+  request fixed when it was made, and the displayed result against the kernel record. A
+  digest that merely appears somewhere else in the identifier, evidence swapped after the
+  fact, or a decision edited in `result.json` are each refused, with the layer named in the
+  finding code.
 
 `--as-of` and `--host-key` pin the snapshot moment and the logical host. They exist for
 controlled comparisons: with both pinned, two runs differ in one evidence field and in
