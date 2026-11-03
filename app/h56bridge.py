@@ -25,7 +25,7 @@ TASK_KIND = "TASK:ENV_QUALIFICATION_ONLY"
 TASK_ORIGIN = "SYNTHETIC_DEMO_TASK"
 TASK_ORIGIN_REF = "SYNTHETIC_TASK_DESCRIPTOR_V1"
 
-RUN_FILES = ("request.json", "evidence.json", "result.json")
+RUN_FILES = ("request.json", "evidence.json", "result.json", "binding.json")
 
 
 class BridgeError(RuntimeError):
@@ -67,12 +67,26 @@ def request_document(request_id, task, environment_id, raw_evidence_sha256, as_o
     }
 
 
-def identifiers(business, stamp):
-    """Token-shaped names for one run. No colon, slash, space or non-ASCII survives here."""
+def identifiers(business, stamp, host_key=None):
+    """Token-shaped names for one run. No colon, slash, space or non-ASCII survives here.
+
+    `host_key` pins the *logical host* — the task identity and the environment identity —
+    independently of the run's own timestamp. That separation is what makes a controlled
+    comparison possible: two runs can differ in exactly one evidence field while sharing
+    the same task and the same environment, with only the request identifier telling them
+    apart.
+
+    Defaulting `host_key` to `stamp` keeps every earlier call site behaving exactly as it
+    did, so the pinning is opt-in rather than a silent change of identity.
+
+    `request_id` stays a token: the kernel's TOKEN pattern is 1..64 characters, and the
+    order fingerprint appended by `binding.request_id_for` adds 13.
+    """
+    host = stamp if host_key is None else host_key
     return dict(
         request_id="req_%s_%s" % (business, stamp),
-        environment_id="ENV-%s-%s" % (business, stamp),
-        task_id="TASK-%s-%s" % (business, stamp),
+        environment_id="ENV-%s-%s" % (business, host),
+        task_id="TASK-%s-%s" % (business, host),
         session="oq_%s_%s" % (business, stamp),
     )
 
@@ -103,14 +117,21 @@ def evaluate(envelope_raw, request, records_root, session):
     return assessment.evaluate(envelope_raw, request, store)
 
 
-def write_run(run_directory, request, envelope_raw, result):
-    """Persist the three documents of a run; bytes are canonical so a digest recomputes."""
+def write_run(run_directory, request, envelope_raw, result, binding=None):
+    """Persist the documents of a run; bytes are canonical so a digest recomputes.
+
+    `binding` is written as its own file rather than nested inside `result.json`. A reader
+    that only wants the verdict does not have to know about the binding, and a reader
+    auditing the binding does not have to parse the verdict.
+    """
     directory = Path(run_directory)
     directory.mkdir(parents=True, exist_ok=True)
     documents = {
         "request.json": request,
         "result.json": result,
     }
+    if binding is not None:
+        documents["binding.json"] = binding
     for name, value in documents.items():
         (directory / name).write_bytes(hostproof.dumps(value).encode("utf-8"))
     (directory / "evidence.json").write_bytes(envelope_raw)

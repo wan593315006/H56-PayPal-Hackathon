@@ -213,14 +213,22 @@ def selfcheck():
 
 
 EXIT_OK, EXIT_SELFCHECK, EXIT_USAGE, EXIT_BLOCKED, EXIT_KERNEL = 0, 1, 2, 3, 4
+EXIT_BINDING = 5
 
 
 def build_order(offer_id, offer, amount_minor=None, currency=None, payee=None):
-    """An order is what the operator wants to pay; the catalogue only supplies defaults.
+    """An order is what the operator wants to pay; the catalogue is the price source.
 
     `offer` is None when the identifier is not in the catalogue. That case still builds an
     order: the policy layer is what must report the miss, so this function must not raise
     first and hide the rule that applies.
+
+    `amount_source` records where the number came from. When the caller supplies nothing
+    the catalogue is the server-side calculator and the value cannot disagree with itself;
+    when the caller supplies a number it is marked as such and R4 compares it against the
+    catalogue price. The field exists because "the amount was taken from the catalogue"
+    and "the amount happened to match the catalogue" are different claims, and only the
+    first one is true when the value is defaulted.
     """
     offer = offer or {}
     return {
@@ -228,6 +236,7 @@ def build_order(offer_id, offer, amount_minor=None, currency=None, payee=None):
         "amount_minor": offer.get("amount_minor") if amount_minor is None else amount_minor,
         "currency": offer.get("currency") if currency is None else currency,
         "payee": offer.get("payee") if payee is None else payee,
+        "amount_source": "CATALOGUE" if amount_minor is None else "CLIENT_SUPPLIED",
     }
 
 
@@ -278,11 +287,14 @@ def evaluate_command(arguments):
 
     # Only now does the kernel become reachable: a business refusal above returns before
     # this line, so "the kernel was never asked" is a property of the code path, not a claim.
-    from . import h56bridge
+    from . import binding, h56bridge
 
-    names = h56bridge.identifiers(business, stamp)
+    names = h56bridge.identifiers(business, stamp, host_key=arguments.host_key)
     task = h56bridge.task_ref(names["task_id"])
-    as_of = hostproof.stamp(hostproof.utc_now())
+    # `--as-of` pins the snapshot moment so two runs can be compared field for field. It is
+    # not a convenience flag: without it every evidence item carries a different
+    # `observed_at`, and a "one field differs" claim becomes untestable by construction.
+    as_of = arguments.as_of or hostproof.stamp(hostproof.utc_now())
     observed = (hostproof.stamp(hostproof.shift(hostproof.utc_now(),
                                                 -arguments.observed_offset))
                 if arguments.observed_offset else None)
@@ -292,9 +304,15 @@ def evaluate_command(arguments):
     envelope, envelope_raw = hostproof.build(
         names["environment_id"], task, as_of, observed_at=observed, values=values)
 
+    # The request identifier carries the order's fingerprint from here on. This is the only
+    # place the order enters the request, and it enters by digest, not by text: the kernel
+    # derives `assessment_id` from the digest of the whole request, so the recorded id is a
+    # function of the order without the kernel knowing what an order is.
+    request_id = binding.request_id_for(names["request_id"], order)
+
     try:
         request = h56bridge.request_document(
-            names["request_id"], task, names["environment_id"],
+            request_id, task, names["environment_id"],
             hashlib.sha256(envelope_raw).hexdigest(), as_of)
         result = h56bridge.evaluate(envelope_raw, request, settings.RECORDS_ROOT,
                                     names["session"])
@@ -308,7 +326,7 @@ def evaluate_command(arguments):
             "h56_invoked": True,
             "reason_codes": [code],
             "stage": stage,
-            "request_id": names["request_id"],
+            "request_id": request_id,
         }
         run_directory.joinpath("result.json").write_bytes(
             hostproof.dumps(document).encode("utf-8"))
@@ -316,13 +334,16 @@ def evaluate_command(arguments):
         print("RUN       %s" % run_directory.name)
         return EXIT_KERNEL
 
+    record = binding.make(catalogue, order, request, envelope_raw, result["reference"],
+                          names["session"])
     summary = h56bridge.summarize(result)
     summary.update(schema="H56_APP_RUN_RESULT_V1", layer="KERNEL", h56_invoked=True,
-                   request_id=names["request_id"], session=names["session"],
+                   request_id=request_id, session=names["session"],
                    reference=result["reference"],
                    order=order, policy=dict(decision=verdict["decision"],
-                                            reason_codes=verdict["reason_codes"]))
-    h56bridge.write_run(run_directory, request, envelope_raw, summary)
+                                            reason_codes=verdict["reason_codes"]),
+                   binding_sha256=record["binding_sha256"])
+    h56bridge.write_run(run_directory, request, envelope_raw, summary, binding=record)
     print("H56       %s stage=%s native_calls=%d returned=%d evidence=%s policy=%s" % (
         summary["decision"], summary["stage"], summary["native_calls"],
         summary["native_returned"], summary["evidence_state"], summary["policy_state"]))
@@ -331,6 +352,9 @@ def evaluate_command(arguments):
     print("BOUNDARY  authority_granted=%s execution_permitted=%s business_action_calls=%s" % (
         summary["authority_granted"], summary["execution_permitted"],
         summary["business_action_calls"]))
+    print("BINDING   order_token=%s amount=%s(%s) binding_sha256=%s" % (
+        record["order_token"], order["amount_minor"], order["amount_source"],
+        record["binding_sha256"][:16]))
     print("RUN       %s" % run_directory.name)
     return EXIT_OK
 
@@ -350,6 +374,66 @@ def evaluate_parser(sub):
     parser.add_argument("--integrity-rid", type=int, default=None)
     parser.add_argument("--observed-offset", type=int, default=0,
                         help="seconds to age the snapshot; >300 expires every field")
+    parser.add_argument("--as-of", default=None,
+                        help="pin the snapshot moment (2026-11-03T04:00:00Z); defaults to now")
+    parser.add_argument("--host-key", default=None,
+                        help="pin task and environment identity for a controlled comparison")
+    return parser
+
+
+def verify_command(arguments):
+    """Re-check an existing run's binding without asking the kernel to decide again.
+
+    Nothing here re-runs the four cores. The point is exactly that: the binding must be
+    verifiable from the bytes on disk, so an auditor without a working kernel can still
+    find out whether the order in `result.json` is the order this assessment was made for.
+    """
+    from . import binding, policy
+
+    directory = settings.existing_run_directory(arguments.stamp, arguments.business)
+    required = ("binding.json", "result.json", "request.json", "evidence.json")
+    missing = [name for name in required if not directory.joinpath(name).is_file()]
+    if missing:
+        print("BINDING   REJECTED codes=BINDING_DOCUMENT_MISSING:%s" % ",".join(missing))
+        print("BIND_FINDINGS=1")
+        print("VERIFY_EXIT=%d" % EXIT_BINDING)
+        return EXIT_BINDING
+
+    read = lambda name: json.loads(directory.joinpath(name).read_bytes().decode("utf-8"))
+    record = read("binding.json")
+    result = read("result.json")
+    request = read("request.json")
+    evidence_raw = directory.joinpath("evidence.json").read_bytes()
+
+    findings = binding.check(record, policy.load_catalog(),
+                             result.get("order") or {}, request, evidence_raw)
+
+    # The last link is the only one that cannot be recomputed from the run directory alone:
+    # it asks the record store whether the assessment the binding names actually exists and
+    # still hashes to what the event says. A binding that points at a deleted artifact is a
+    # broken binding even if every digest in it is self-consistent.
+    if not findings:
+        from . import h56bridge
+        try:
+            store = h56bridge.kernel()[1].RecordStore(
+                Path(settings.RECORDS_ROOT).absolute(), record["session"], create=False)
+            store.view(record["reference"])
+        except Exception as error:  # noqa: BLE001 - any refusal here is the finding
+            findings.append("%s:%s" % (binding.ASSESSMENT_UNAVAILABLE,
+                                       getattr(error, "code", type(error).__name__)))
+
+    ok = not findings
+    print("BINDING   %s codes=%s" % ("OK" if ok else "REJECTED", ",".join(findings) or "-"))
+    print("BIND_FINDINGS=%d" % len(findings))
+    print("VERIFY_EXIT=%d" % (EXIT_OK if ok else EXIT_BINDING))
+    return EXIT_OK if ok else EXIT_BINDING
+
+
+def verify_parser(sub):
+    parser = sub.add_parser(
+        "verify", help="re-check one run's order/kernel binding from its bytes")
+    parser.add_argument("--stamp", required=True, help="20261103T035626Z")
+    parser.add_argument("--business", default="shop")
     return parser
 
 
@@ -359,9 +443,12 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("selfcheck", help="verify the package against its own identity record")
     evaluate_parser(sub)
+    verify_parser(sub)
     arguments = parser.parse_args(argv)
     if arguments.command == "selfcheck":
         return selfcheck()
+    if arguments.command == "verify":
+        return verify_command(arguments)
     if arguments.command == "evaluate":
         return evaluate_command(arguments)
     return EXIT_USAGE

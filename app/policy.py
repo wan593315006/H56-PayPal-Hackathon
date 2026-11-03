@@ -13,6 +13,11 @@ from pathlib import Path
 
 CATALOG_PATH = Path(__file__).absolute().parent.parent / "fixtures" / "catalog.json"
 
+# The rule set is a constant, not a literal buried in the return value: the binding record
+# stores it, and a binding that names the rules it was checked under catches a policy layer
+# that changed shape between the run and the audit.
+RULES = ("R1_AMOUNT", "R2_OFFER", "R3_PAYEE", "R4_CATALOGUE_PRICE")
+
 
 class PolicyError(RuntimeError):
     def __init__(self, code, detail=""):
@@ -64,11 +69,22 @@ def load_catalog(path=None):
 
 
 def decide(order, catalog):
-    """Three rules, each reporting its own code so a refusal can be explained.
+    """Four rules, each reporting its own code so a refusal can be explained.
 
-    R1 amount: positive integer, within the per-order limit, same currency as the offer.
+    R1 amount: positive integer, within the per-order limit.
     R2 offer:  the identifier is in the catalogue.
     R3 payee:  the payee is on the whitelist.
+    R4 price:  the amount must *equal* the catalogue price for that offer, and the
+               currency must be the offer's.
+
+    R4 is the rule that makes the catalogue the single source of price. Without it an
+    order for 1 minor unit against a 5000 offer passes: every other rule is satisfied,
+    the limit is not exceeded, and the currency matches. A limit is an upper bound, not
+    a price, so "within budget" must never be read as "correct amount".
+
+    The checks are an if/elif chain on purpose: one bad amount produces one code. A value
+    that is both above the limit and not the catalogue price is reported as the limit
+    breach, because that is the rule the operator can act on first.
     """
     reasons = []
     offer = None
@@ -82,6 +98,8 @@ def decide(order, catalog):
         reasons.append("POLICY_AMOUNT_INVALID")
     elif amount > catalog["per_order_limit_minor"]:
         reasons.append("POLICY_AMOUNT_LIMIT_EXCEEDED")
+    elif offer is not None and amount != offer["amount_minor"]:
+        reasons.append("POLICY_AMOUNT_NOT_CATALOGUE_PRICE")
     if offer is not None and order.get("currency") != offer["currency"]:
         reasons.append("POLICY_CURRENCY_MISMATCH")
 
@@ -93,4 +111,4 @@ def decide(order, catalog):
     return dict(decision="ALLOW" if not reasons else "BLOCKED",
                 reason_codes=reasons,
                 offer=offer,
-                rules=("R1_AMOUNT", "R2_OFFER", "R3_PAYEE"))
+                rules=RULES)
