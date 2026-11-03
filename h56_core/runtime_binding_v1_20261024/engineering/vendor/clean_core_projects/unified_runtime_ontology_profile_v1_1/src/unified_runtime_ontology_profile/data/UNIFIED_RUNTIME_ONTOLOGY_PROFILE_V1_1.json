@@ -1,0 +1,82 @@
+{
+  "profile_id": "URO:PROFILE:V1_1",
+  "profile_version": "1.1.0",
+  "core_terms": {
+    "Authority": "uro:Authority",
+    "Candidate": "uro:Candidate",
+    "Capability": "uro:Capability",
+    "Evidence": "uro:Evidence",
+    "Method": "uro:Method",
+    "Observation": "uro:Observation",
+    "Policy": "uro:Policy",
+    "Session": "uro:Session",
+    "State": "uro:State",
+    "Task": "uro:Task"
+  },
+  "extension_profiles": [
+    {
+      "namespace": "uro-data",
+      "version": "1.0.0",
+      "terms": [
+        "uro-data:DataGapCandidate",
+        "uro-data:DataReadinessReceipt",
+        "uro-data:DataRequirement",
+        "uro-data:DataSubmission",
+        "uro-data:SourceTrustAssessment",
+        "uro-data:SourceTrustClaim"
+      ]
+    },
+    {
+      "namespace": "uro-method",
+      "version": "1.0.0",
+      "terms": [
+        "uro-method:CandidateEvidenceReplay",
+        "uro-method:DomainBinding",
+        "uro-method:Episode",
+        "uro-method:EvidenceAtom",
+        "uro-method:FormalOperator",
+        "uro-method:MethodFragment",
+        "uro-method:MethodSkeleton",
+        "uro-method:Pattern"
+      ]
+    },
+    {
+      "namespace": "uro-resource",
+      "version": "1.0.0",
+      "terms": ["uro-resource:ResourceBudget"]
+    },
+    {
+      "namespace": "uro-trust",
+      "version": "1.0.0",
+      "terms": [
+        "uro-trust:ExternalTrustVerification",
+        "uro-trust:SourceAuthorizationScope",
+        "uro-trust:SourceRevocationView",
+        "uro-trust:SourceTrustAttestation"
+      ]
+    }
+  ],
+  "relations": [
+    {"relation_id": "uro:candidateBoundByAuthority", "source_type": "uro:Candidate", "target_type": "uro:Authority", "cardinality": "MANY_TO_ONE", "temporal_form": "POINT_IN_TIME", "scope": "CANDIDATE_ONLY", "evidence_requirement": "DECLARED", "forbidden_inference": "authority descriptor does not grant authority"},
+    {"relation_id": "uro:candidateGovernedByPolicy", "source_type": "uro:Candidate", "target_type": "uro:Policy", "cardinality": "MANY_TO_ONE", "temporal_form": "POINT_IN_TIME", "scope": "CANDIDATE_ONLY", "evidence_requirement": "SOURCE_BOUND", "forbidden_inference": "policy relation does not execute policy"},
+    {"relation_id": "uro:candidateProducesObservation", "source_type": "uro:Candidate", "target_type": "uro:Observation", "cardinality": "ONE_TO_MANY", "temporal_form": "EVENTUAL", "scope": "CANDIDATE_ONLY", "evidence_requirement": "REPLAYED", "forbidden_inference": "observation does not admit fact"},
+    {"relation_id": "uro:candidateSelectsMethod", "source_type": "uro:Candidate", "target_type": "uro:Method", "cardinality": "MANY_TO_ONE", "temporal_form": "POINT_IN_TIME", "scope": "CANDIDATE_ONLY", "evidence_requirement": "SOURCE_BOUND", "forbidden_inference": "selection does not promote method"},
+    {"relation_id": "uro:candidateUsesCapability", "source_type": "uro:Candidate", "target_type": "uro:Capability", "cardinality": "MANY_TO_MANY", "temporal_form": "EVENTUAL", "scope": "CANDIDATE_ONLY", "evidence_requirement": "SOURCE_BOUND", "forbidden_inference": "use relation does not execute capability"},
+    {"relation_id": "uro:evidenceSupportsMethod", "source_type": "uro:Evidence", "target_type": "uro:Method", "cardinality": "MANY_TO_MANY", "temporal_form": "ATEMPORAL", "scope": "CANDIDATE_ONLY", "evidence_requirement": "REPLAYED", "forbidden_inference": "support does not promote method"},
+    {"relation_id": "uro:observationYieldsEvidence", "source_type": "uro:Observation", "target_type": "uro:Evidence", "cardinality": "ONE_TO_MANY", "temporal_form": "EVENTUAL", "scope": "CANDIDATE_ONLY", "evidence_requirement": "REPLAYED", "forbidden_inference": "evidence is not authoritative fact"},
+    {"relation_id": "uro:sessionContainsTask", "source_type": "uro:Session", "target_type": "uro:Task", "cardinality": "ONE_TO_MANY", "temporal_form": "INTERVAL", "scope": "CANDIDATE_ONLY", "evidence_requirement": "SOURCE_BOUND", "forbidden_inference": "session containment does not establish runtime ownership"},
+    {"relation_id": "uro:taskHasState", "source_type": "uro:Task", "target_type": "uro:State", "cardinality": "ONE_TO_MANY", "temporal_form": "POINT_IN_TIME", "scope": "CANDIDATE_ONLY", "evidence_requirement": "SOURCE_BOUND", "forbidden_inference": "relation does not write state"},
+    {"relation_id": "uro:taskRequestsCandidate", "source_type": "uro:Task", "target_type": "uro:Candidate", "cardinality": "ONE_TO_MANY", "temporal_form": "POINT_IN_TIME", "scope": "CANDIDATE_ONLY", "evidence_requirement": "DECLARED", "forbidden_inference": "request does not authorize candidate"}
+  ],
+  "context_dimensions": [
+    "capability_version",
+    "environment_version",
+    "evidence_quality",
+    "input_characteristics",
+    "lifecycle",
+    "policy_version",
+    "resource_budget",
+    "state_pattern"
+  ],
+  "profile_hash": "5234e7badaf43dbe56e5aedaf47e0b540f72401aeb3f7227900d75586ca85008"
+}

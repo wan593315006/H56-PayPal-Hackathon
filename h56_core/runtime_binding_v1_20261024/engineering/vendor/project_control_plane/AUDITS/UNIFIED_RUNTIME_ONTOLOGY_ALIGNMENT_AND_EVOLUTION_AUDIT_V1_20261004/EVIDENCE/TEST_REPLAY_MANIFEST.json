@@ -1,0 +1,38 @@
+{
+  "audit_id": "UNIFIED_RUNTIME_ONTOLOGY_ALIGNMENT_AND_EVOLUTION_AUDIT_V1",
+  "executed_on_baseline": "22f3c9026380c6d6aeb99e8f5fc90127f632c043",
+  "replays": [
+    {
+      "id": "RUN-V014-PY39",
+      "command": "PYTHONPATH=src; py -3.9 -m pytest -q",
+      "path": "clean_core_projects/candidate_runtime_context_projection_v0_14",
+      "result": "13 passed"
+    },
+    {
+      "id": "RUN-V014-PY313",
+      "command": "PYTHONPATH=src; py -3.13 -m pytest -q",
+      "path": "clean_core_projects/candidate_runtime_context_projection_v0_14",
+      "result": "13 passed"
+    },
+    {
+      "id": "RUN-V014-BOUNDARY-MANIFEST-SEMANTIC",
+      "command": "boundary + manifest + Five-Body semantic review",
+      "path": "clean_core_projects/candidate_runtime_context_projection_v0_14",
+      "result": "PASS; semantic issues=0; py39/py313 receipt SHA256=4f6c09804acbd1be1916671d84e2cdc00b3120649e3df12d0e637a8f44b267db"
+    },
+    {
+      "id": "RUN-DATA-TRUST-PRECEDENT-PY39-PY313",
+      "command": "PYTHONPATH=src; py -3.9/-3.13 -m pytest -q; precedent manifest verifier",
+      "path": "clean_core_projects/candidate_data_source_trust_contract_v0_1",
+      "result": "14 passed per Python; five predecessor manifests PASS; DEFER-only boundary unchanged"
+    }
+  ],
+  "not_proven": [
+    "authoritative unified ontology",
+    "kernel ownership",
+    "external source trust",
+    "real data read",
+    "legacy runtime bridge",
+    "execution or formal MLM authority"
+  ]
+}

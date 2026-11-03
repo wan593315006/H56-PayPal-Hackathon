@@ -1,0 +1,6 @@
+{
+  "scope": "AUDIT_REPLAY_ENVIRONMENT_NOT_DEVICE_IDENTITY",
+  "python_3_9": {"implementation": "CPython", "version": "3.9.13", "os": "Windows", "release": "10", "machine": "AMD64"},
+  "python_3_13": {"implementation": "CPython", "version": "3.13.12", "os": "Windows", "release": "11", "machine": "AMD64"},
+  "excluded": ["host_name", "mac_address", "ip_address", "user_identity", "credentials", "device_serial"]
+}

@@ -1,0 +1,611 @@
+{
+  "boundary": {
+    "candidate_only": true,
+    "external_side_effect": false,
+    "formal_mlm_write": false,
+    "legacy_source_write": false,
+    "provider_or_mcp_call": false,
+    "runtime_authority": "not_authorized"
+  },
+  "candidate_review": {
+    "architecture_competition": {
+      "demand_pack_id": "BIZ:K0:CANONICAL_FACT_FOUNDATION:V1",
+      "mlm_authority": "no_formal_write",
+      "mother_decision_required": true,
+      "options": [
+        {
+          "architecture_style": "modular_monolith",
+          "assumption_constraints": [
+            "software_world_model_candidate_only",
+            "xiaoji2_does_not_generate_business_code",
+            "状态和锁集中实现",
+            "首期部署复杂度低"
+          ],
+          "evidence_refs": [
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT"
+          ],
+          "expected_value_score": 0.82,
+          "name": "软件世界驱动的模块化单体方案",
+          "option_id": "A",
+          "rejected_reason": "当事件传播或跨域扩展压力较高时，模块化单体容易形成后续拆分成本。",
+          "risk_score": 0.232,
+          "simulation_confidence": 0.8
+        },
+        {
+          "architecture_style": "service_oriented",
+          "assumption_constraints": [
+            "software_world_model_candidate_only",
+            "xiaoji2_does_not_generate_business_code",
+            "服务边界可稳定识别",
+            "团队具备运维能力"
+          ],
+          "evidence_refs": [
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT"
+          ],
+          "expected_value_score": 0.7,
+          "name": "软件世界驱动的微服务方案",
+          "option_id": "B",
+          "rejected_reason": "当数据一致性和团队运维能力不足时，微服务复杂度可能高于收益。",
+          "risk_score": 0.32,
+          "simulation_confidence": 0.76
+        },
+        {
+          "architecture_style": "event_driven",
+          "assumption_constraints": [
+            "software_world_model_candidate_only",
+            "xiaoji2_does_not_generate_business_code",
+            "事件可追踪",
+            "补偿和幂等规则必须明确"
+          ],
+          "evidence_refs": [
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT",
+            "K0_CANDIDATE_REVIEW_INPUT"
+          ],
+          "expected_value_score": 0.67,
+          "name": "软件世界驱动的事件驱动方案",
+          "option_id": "C",
+          "rejected_reason": "当核心流程不需要异步传播时，事件驱动会增加理解和调试成本。",
+          "risk_score": 0.34,
+          "simulation_confidence": 0.78
+        }
+      ],
+      "pack_id": "ARCH_COMPETITION_FOR_SW:K0:CANONICAL_FACT_FOUNDATION:V1",
+      "runtime_authority": "not_authorized",
+      "source_role": "小机2号"
+    },
+    "compilation_id": "SOFTWARE_WORLD_COMPILATION_SW:K0:CANONICAL_FACT_FOUNDATION:V1",
+    "mlm_authority": "no_formal_write",
+    "runtime_authority": "not_authorized",
+    "santi_runtime_dependency": false,
+    "software_world_model": {
+      "architecture_drivers": [
+        {
+          "driver": "state_complexity",
+          "reason": "number of explicit business states",
+          "score": 0.375
+        },
+        {
+          "driver": "data_consistency",
+          "reason": "scarce resource or transaction consistency",
+          "score": 0.0
+        },
+        {
+          "driver": "event_propagation",
+          "reason": "downstream event propagation",
+          "score": 0.0
+        },
+        {
+          "driver": "permission_complexity",
+          "reason": "role or field scope pressure",
+          "score": 0.0
+        },
+        {
+          "driver": "extension_pressure",
+          "reason": "future capability expansion",
+          "score": 0.0
+        },
+        {
+          "driver": "concurrency_locking",
+          "reason": "concurrent resource contention",
+          "score": 0.0
+        }
+      ],
+      "assumption_constraints": [
+        "software_world_model_candidate_only",
+        "xiaoji2_does_not_generate_business_code"
+      ],
+      "business_semantic_model_id": "BIZ:K0:CANONICAL_FACT_FOUNDATION:V1",
+      "evidence_refs": [
+        {
+          "mapped_to": [
+            "KernelReviewer"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "KernelReviewer submit CanonicalFact into FactHistory."
+        },
+        {
+          "mapped_to": [
+            "CanonicalFact"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "KernelReviewer submit CanonicalFact into FactHistory."
+        },
+        {
+          "mapped_to": [
+            "FactHistory"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "KernelReviewer submit CanonicalFact into FactHistory."
+        },
+        {
+          "mapped_to": [
+            "DerivedState"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "CandidateTransition 必须 not mutate DerivedState when a candidate is denied."
+        },
+        {
+          "mapped_to": [
+            "CandidateTransition"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "CandidateTransition 必须 not mutate DerivedState when a candidate is denied."
+        },
+        {
+          "mapped_to": [
+            "DecisionTrace"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "DecisionTrace 必须 record the denial decision for CandidateTransition."
+        },
+        {
+          "mapped_to": [
+            "submit"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "KernelReviewer submit CanonicalFact into FactHistory."
+        },
+        {
+          "mapped_to": [
+            "verify"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "KernelReviewer verify CanonicalFact before record FactHistory."
+        },
+        {
+          "mapped_to": [
+            "derive"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "CandidateTransition 必须 not mutate DerivedState when a candidate is denied."
+        },
+        {
+          "mapped_to": [
+            "record"
+          ],
+          "source_ref": "K0_CANDIDATE_REVIEW_INPUT",
+          "source_text": "KernelReviewer verify CanonicalFact before record FactHistory."
+        }
+      ],
+      "lifecycle_models": [
+        {
+          "evidence_refs": [
+            "KernelReviewer submit CanonicalFact into FactHistory."
+          ],
+          "object": "KernelReviewer",
+          "states": [
+            "Active",
+            "Suspended"
+          ]
+        },
+        {
+          "evidence_refs": [
+            "KernelReviewer submit CanonicalFact into FactHistory."
+          ],
+          "object": "CanonicalFact",
+          "states": [
+            "Draft",
+            "Active",
+            "Archived"
+          ]
+        },
+        {
+          "evidence_refs": [
+            "KernelReviewer submit CanonicalFact into FactHistory."
+          ],
+          "object": "FactHistory",
+          "states": [
+            "Draft",
+            "Active",
+            "Archived"
+          ]
+        },
+        {
+          "evidence_refs": [
+            "CandidateTransition 必须 not mutate DerivedState when a candidate is denied."
+          ],
+          "object": "DerivedState",
+          "states": [
+            "Draft",
+            "Active",
+            "Archived"
+          ]
+        },
+        {
+          "evidence_refs": [
+            "CandidateTransition 必须 not mutate DerivedState when a candidate is denied."
+          ],
+          "object": "CandidateTransition",
+          "states": [
+            "Draft",
+            "Active",
+            "Archived"
+          ]
+        },
+        {
+          "evidence_refs": [
+            "DecisionTrace 必须 record the denial decision for CandidateTransition."
+          ],
+          "object": "DecisionTrace",
+          "states": [
+            "Draft",
+            "Active",
+            "Archived"
+          ]
+        }
+      ],
+      "mlm_authority": "no_formal_write",
+      "model_id": "SW:K0:CANONICAL_FACT_FOUNDATION:V1",
+      "mother_decision_required": true,
+      "relationships": [
+        {
+          "from": "KernelReviewer",
+          "relation": "uses_or_operates",
+          "to": "CanonicalFact",
+          "via_actions": [
+            "submit",
+            "verify",
+            "derive",
+            "record"
+          ]
+        },
+        {
+          "from": "KernelReviewer",
+          "relation": "uses_or_operates",
+          "to": "FactHistory",
+          "via_actions": [
+            "submit",
+            "verify",
+            "derive",
+            "record"
+          ]
+        },
+        {
+          "from": "KernelReviewer",
+          "relation": "uses_or_operates",
+          "to": "DerivedState",
+          "via_actions": [
+            "submit",
+            "verify",
+            "derive",
+            "record"
+          ]
+        },
+        {
+          "from": "KernelReviewer",
+          "relation": "uses_or_operates",
+          "to": "CandidateTransition",
+          "via_actions": [
+            "submit",
+            "verify",
+            "derive",
+            "record"
+          ]
+        },
+        {
+          "from": "KernelReviewer",
+          "relation": "uses_or_operates",
+          "to": "DecisionTrace",
+          "via_actions": [
+            "submit",
+            "verify",
+            "derive",
+            "record"
+          ]
+        },
+        {
+          "from": "CanonicalFact",
+          "relation": "domain_association",
+          "to": "FactHistory",
+          "via_actions": [
+            "submit",
+            "verify",
+            "derive"
+          ]
+        },
+        {
+          "from": "FactHistory",
+          "relation": "domain_association",
+          "to": "DerivedState",
+          "via_actions": [
+            "submit",
+            "verify",
+            "derive"
+          ]
+        },
+        {
+          "from": "DerivedState",
+          "relation": "domain_association",
+          "to": "CandidateTransition",
+          "via_actions": [
+            "submit",
+            "verify",
+            "derive"
+          ]
+        },
+        {
+          "from": "CandidateTransition",
+          "relation": "domain_association",
+          "to": "DecisionTrace",
+          "via_actions": [
+            "submit",
+            "verify",
+            "derive"
+          ]
+        }
+      ],
+      "risk_propagation_paths": [],
+      "runtime_authority": "not_authorized",
+      "simulation_questions": [],
+      "software_objects": [
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "display_name",
+            "contact",
+            "role",
+            "permission_scope",
+            "status"
+          ],
+          "evidence_refs": [
+            "KernelReviewer submit CanonicalFact into FactHistory."
+          ],
+          "kind": "actor_object",
+          "lifecycle": [
+            "Active",
+            "Suspended"
+          ],
+          "name": "KernelReviewer",
+          "relationships": []
+        },
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "status"
+          ],
+          "evidence_refs": [
+            "KernelReviewer submit CanonicalFact into FactHistory."
+          ],
+          "kind": "domain_object",
+          "lifecycle": [
+            "Draft",
+            "Active",
+            "Archived"
+          ],
+          "name": "CanonicalFact",
+          "relationships": []
+        },
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "status"
+          ],
+          "evidence_refs": [
+            "KernelReviewer submit CanonicalFact into FactHistory."
+          ],
+          "kind": "domain_object",
+          "lifecycle": [
+            "Draft",
+            "Active",
+            "Archived"
+          ],
+          "name": "FactHistory",
+          "relationships": []
+        },
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "status"
+          ],
+          "evidence_refs": [
+            "CandidateTransition 必须 not mutate DerivedState when a candidate is denied."
+          ],
+          "kind": "domain_object",
+          "lifecycle": [
+            "Draft",
+            "Active",
+            "Archived"
+          ],
+          "name": "DerivedState",
+          "relationships": []
+        },
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "status"
+          ],
+          "evidence_refs": [
+            "CandidateTransition 必须 not mutate DerivedState when a candidate is denied."
+          ],
+          "kind": "domain_object",
+          "lifecycle": [
+            "Draft",
+            "Active",
+            "Archived"
+          ],
+          "name": "CandidateTransition",
+          "relationships": []
+        },
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "status"
+          ],
+          "evidence_refs": [
+            "DecisionTrace 必须 record the denial decision for CandidateTransition."
+          ],
+          "kind": "domain_object",
+          "lifecycle": [
+            "Draft",
+            "Active",
+            "Archived"
+          ],
+          "name": "DecisionTrace",
+          "relationships": []
+        }
+      ],
+      "software_rules": [
+        {
+          "affected_objects": [
+            "CanonicalFact",
+            "FactHistory"
+          ],
+          "evidence_refs": [
+            "CanonicalFact 必须 preserve source, subject, evidence, and version before record FactHistory."
+          ],
+          "name": "Rule_CanonicalFact_必须_preserve_source_subject_evidence_",
+          "software_rule": "enforce_as_domain_policy_with_audit",
+          "source_business_rule": "CanonicalFact 必须 preserve source, subject, evidence, and version before record FactHistory."
+        },
+        {
+          "affected_objects": [
+            "CanonicalFact",
+            "FactHistory"
+          ],
+          "evidence_refs": [
+            "FactHistory 必须 append CanonicalFact without overwrite."
+          ],
+          "name": "Rule_FactHistory_必须_append_CanonicalFact_without_overwr",
+          "software_rule": "enforce_as_domain_policy_with_audit",
+          "source_business_rule": "FactHistory 必须 append CanonicalFact without overwrite."
+        },
+        {
+          "affected_objects": [
+            "DerivedState",
+            "CandidateTransition"
+          ],
+          "evidence_refs": [
+            "CandidateTransition 必须 not mutate DerivedState when a candidate is denied."
+          ],
+          "name": "Rule_CandidateTransition_必须_not_mutate_DerivedState_whe",
+          "software_rule": "enforce_as_domain_policy_with_audit",
+          "source_business_rule": "CandidateTransition 必须 not mutate DerivedState when a candidate is denied."
+        },
+        {
+          "affected_objects": [
+            "CandidateTransition",
+            "DecisionTrace"
+          ],
+          "evidence_refs": [
+            "DecisionTrace 必须 record the denial decision for CandidateTransition."
+          ],
+          "name": "Rule_DecisionTrace_必须_record_the_denial_decision_for_Ca",
+          "software_rule": "enforce_as_domain_policy_with_audit",
+          "source_business_rule": "DecisionTrace 必须 record the denial decision for CandidateTransition."
+        }
+      ],
+      "source_role": "小机2号",
+      "state_machines": [
+        {
+          "evidence_refs": [
+            "CandidateReviewRequested -> CandidateReviewValidated -> CandidateReviewArchived."
+          ],
+          "exception_paths": [
+            {
+              "event": "cancel",
+              "from": "CandidateReviewRequested",
+              "to": "Cancelled"
+            }
+          ],
+          "name": "WorkflowStateMachine",
+          "states": [
+            "CandidateReviewRequested",
+            "CandidateReviewValidated",
+            "CandidateReviewArchived"
+          ],
+          "transitions": [
+            {
+              "event": "CandidateReviewRequested_to_CandidateReviewValidated",
+              "from": "CandidateReviewRequested",
+              "guard": "business_condition_satisfied",
+              "to": "CandidateReviewValidated"
+            },
+            {
+              "event": "CandidateReviewValidated_to_CandidateReviewArchived",
+              "from": "CandidateReviewValidated",
+              "guard": "business_condition_satisfied",
+              "to": "CandidateReviewArchived"
+            }
+          ]
+        }
+      ]
+    },
+    "source_role": "小机2号",
+    "validation_errors": []
+  },
+  "review_id": "FIVE_BODY_CANDIDATE_REVIEW:K0:V1",
+  "semantic_quality_gate": {
+    "candidate_compilation_sha256": "4da0268891bcb4568f3c0f5f4527549b4ba21ced2312ccf31ff72e09a2bca93e",
+    "gate_id": "CANDIDATE_SEMANTIC_REVIEW_QUALITY_GATE_V1",
+    "issue_count": 0,
+    "issues": [],
+    "semantic_version": "1.0.0-candidate",
+    "status": "PASS"
+  },
+  "source_bound_inputs": {
+    "business_semantic_compiler_sha256": "e8a37bb5d589103642afedcad9aedf9634cf2e137ccfc3911e5d7d6444cad453",
+    "controlled_review_input_sha256": "b6a455317b958132de7c5333df3601814262043c595c21bacbbc09b1d6eea445",
+    "controlled_review_profile_sha256": "6a86b21339753245ad83ca9b6d182513790c322cbbe4c4d30a2471b5a1014c62",
+    "k0_requirement_sha256": "c7dc490fae0708a5b63f8299ea2b053c8015ecbbe5af16d6818bf29c86e0c75d",
+    "quality_gate_sha256": "e8a53453036f5cfaf9f1d9dc02e1a483fb7291db535f13a29fcff75528a230b1",
+    "software_world_model_compiler_sha256": "00a3773210bbb6098afb93c96f49dbf0229aef4aca88ab4ca5dc6f38358ccdb3"
+  }
+}

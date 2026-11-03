@@ -1,0 +1,18 @@
+{
+  "audit_id": "UNIFIED_RUNTIME_ONTOLOGY_ALIGNMENT_AND_EVOLUTION_AUDIT_V1",
+  "baseline_commit": "22f3c9026380c6d6aeb99e8f5fc90127f632c043",
+  "evidence": [
+    {"id": "SRC-V014-PROFILE", "path": "clean_core_projects/candidate_runtime_context_projection_v0_14/src/candidate_runtime_context_projection/data/CANDIDATE_RUNTIME_ONTOLOGY_PROFILE_V1.json", "fact": "10 objects, 8 dimensions, 10 relation pairs, candidate-only and fail-closed extension behavior."},
+    {"id": "SRC-V014-PROJECTOR", "path": "clean_core_projects/candidate_runtime_context_projection_v0_14/src/candidate_runtime_context_projection/projector.py", "fact": "deterministic read-only candidate projection."},
+    {"id": "SRC-V014-CONTRACT", "path": "clean_core_projects/candidate_runtime_context_projection_v0_14/CANDIDATE_RUNTIME_CONTEXT_PROJECTION_V0_14_REQUIREMENT.md", "fact": "forbids authority, State/Runtime write, execution and legacy bridge."},
+    {"id": "SRC-DATA-CONTRACT", "path": "clean_core_projects/candidate_data_requirement_model_v0_1/src/candidate_data_requirement_model_v01/contracts.py", "fact": "candidate DataRequirement, Submission, Readiness, SourceTrust receipt and gap vocabulary."},
+    {"id": "SRC-DATA-TRUST", "path": "clean_core_projects/candidate_data_source_trust_contract_v0_1/src/candidate_data_source_trust_v01/contracts.py", "fact": "candidate source identity, transformation, attestation and revocation vocabulary without real trust adapter."},
+    {"id": "SRC-METHOD-E1", "path": "clean_core_projects/candidate_episode_assembly_v0_1/src/candidate_episode_assembly_v01/contracts.py", "fact": "EvidenceAtom and CandidateEpisode candidate vocabulary."},
+    {"id": "SRC-METHOD-E2-M1", "path": "clean_core_projects/candidate_pattern_induction_v0_1/src/candidate_pattern_induction_v01/contracts.py", "fact": "Pattern Candidate vocabulary."},
+    {"id": "SRC-METHOD-M0", "path": "clean_core_projects/candidate_method_skeleton_v0_1/src/candidate_method_skeleton_v01/contracts.py", "fact": "SkeletonStep and MethodSkeletonCandidate vocabulary."},
+    {"id": "SRC-METHOD-B0", "path": "clean_core_projects/candidate_domain_binding_v0_1/src/candidate_domain_binding_v01/contracts.py", "fact": "DomainBinding and BoundDomainCandidate vocabulary."},
+    {"id": "SRC-METHOD-OPERATOR", "path": "clean_core_projects/candidate_formal_operator_binding_v0_1/src/candidate_formal_operator_binding_v01/contracts.py", "fact": "FormalOperatorDescriptor and candidate binding vocabulary."},
+    {"id": "SRC-PRIOR-AUDIT", "path": "project_control_plane/AUDITS/RUNTIME_ONTOLOGY_ALIGNMENT_GAP_AUDIT_V1_20260928/GAP_MATRIX.md", "fact": "pre-V0.14 alignment gap and legacy direct-bridge conflict."}
+  ],
+  "legacy_direct_bridge": "NOT_USED_REFERENCE_ONLY"
+}

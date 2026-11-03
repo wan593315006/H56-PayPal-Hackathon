@@ -1,0 +1,65 @@
+{
+  "schema": "H56_ENV_STATE_MAPPING_V1",
+  "interface_version": "1.0.0",
+  "state_pattern": "ENV_EVALUATION_V1",
+  "policy_expression": {
+    "ALL": [
+      {
+        "NOT": [
+          {
+            "FIELD": "app_container"
+          }
+        ]
+      },
+      {
+        "IN_SET": [
+          {
+            "FIELD": "integrity_rid"
+          },
+          {
+            "CONST": [
+              8192,
+              12288,
+              16384
+            ]
+          }
+        ]
+      },
+      {
+        "FIELD": "outer_job_clear"
+      },
+      {
+        "FIELD": "host_directory_normal"
+      },
+      {
+        "FIELD": "dependencies_available"
+      }
+    ]
+  },
+  "rule_node_count": 9,
+  "max_nodes": 32,
+  "max_depth": 4,
+  "policy_to_C2": {
+    "true": "DECLARED_ALLOWED",
+    "false": "DECLARED_DENIED",
+    "null": "DECLARED_UNKNOWN"
+  },
+  "context_producers": {
+    "task_kind": "TASK:ENV_QUALIFICATION_ONLY",
+    "task_snapshot_hash": "digest(request.task_ref)",
+    "state_pattern": "ENV_EVALUATION_V1",
+    "state_snapshot_hash": "native snapshot.verify();exact STATE: suffix",
+    "method_id": "METHOD:ENV_QUALIFICATION_V1",
+    "method_hash": "digest(frozen environment_policy.method_declaration)",
+    "policy_state": "native bounded_rules boolean/None mapped exactly",
+    "policy_snapshot_hash": "digest({policy_asset_sha256,mapping_asset_sha256,mapping_trace,snapshot_id,as_of})",
+    "authority_state": "frozen synthetic_assumption.authority_state only",
+    "authority_snapshot_hash": "digest(frozen synthetic_assumption incl candidate-only scope/false execution_permission)",
+    "budget_available_units": "strict integer frozen1",
+    "budget_snapshot_hash": "digest({budget_declaration,snapshot_id})",
+    "evidence_state": "source/time/coverage knowledge from verified evidence and frozen requirements",
+    "evidence_snapshot_hash": "digest({raw_evidence_sha256,normalized_evidence,requirements,as_of})",
+    "context_hash": "native canonical_sha256(exact preceding14 fields);check with native FeasibilityContext.from_mapping",
+    "statement": "digest means existing assembly.contracts.digest;native identity algorithms unchanged;all materialized producer bodies retained"
+  }
+}

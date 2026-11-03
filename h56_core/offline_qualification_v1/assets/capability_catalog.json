@@ -1,0 +1,48 @@
+{
+  "schema": "H56_ENV_CAPABILITY_ASSET_V1",
+  "interface_version": "1.0.0",
+  "catalog_id": "CATALOG:ENV_QUALIFICATION_V1",
+  "catalog_version": "1.0.0",
+  "contract_project_id": "CANDIDATE_CANONICAL_CAPABILITY_CONTRACT_V0_1",
+  "contract_commit": "b01fa57f22c108e60ab26b1b285417d50f62b10c",
+  "contract_manifest_sha256": "9ed5f996152a4de096206a54f09e9d6b8b2866a5ef2593cd1a9c619ea2e0c723",
+  "definition_body": {
+    "capability_id": "CAP:ENV_QUALIFY_SIMULATED_TASK",
+    "version": "1.0.0",
+    "input_contract": {
+      "schema_id": "SCHEMA:ENV_EVIDENCE_V1",
+      "schema_version": "1.0.0",
+      "schema_hash": "9726b5490b279027e9528f183e8a935b3de285bd49d06ee58748be69eed53742"
+    },
+    "output_contract": {
+      "schema_id": "SCHEMA:ENV_CANDIDATE_RESULT_V1",
+      "schema_version": "1.0.0",
+      "schema_hash": "2aacbb1b26808c2e6ce4cbfe4a0170b504a198ede95c2744735ed7dad646d25a"
+    },
+    "precondition_hash": "ae861ced04bc0cfe63b2271de80af2fbc3fb0598065cbc22fe7e1a31b2115e79",
+    "scope_hash": "672df3411c99d2a2d5ba21ddfc59d2eb7775a8b571b0f14fe56389dc453a4fa6",
+    "risk_class": "LOW",
+    "resource_requirement_hash": "fedf94d4f9a44691444bf8e735a0f0f91cfa09131d62be9221ada434db6e156c",
+    "failure_boundary_hash": "ccb14beb5071e86731fda97ea4c8fd875d18ab6877362173d427897ab22b57de",
+    "observation_requirement_hash": "75d04bb024e6e509daffe2cea243def70f99e0b6cae1aabd1cebdfdd3c7f3709",
+    "source_id": "SOURCE:SYNTHETIC_ENV_QUALIFICATION_V1",
+    "source_version": "1.0.0",
+    "source_hash": "45860de87677f41a58de0f08b01fe51a6b9c694f108a228d6211bfc82a3db45c",
+    "extension_profile": "CORE"
+  },
+  "availability_body": {
+    "availability_state": "DECLARED_AVAILABLE",
+    "allowed_task_kinds": [
+      "TASK:ENV_QUALIFICATION_ONLY"
+    ],
+    "allowed_state_patterns": [
+      "ENV_EVALUATION_V1"
+    ],
+    "allowed_method_ids": [
+      "METHOD:ENV_QUALIFICATION_V1"
+    ],
+    "minimum_budget_units": 1,
+    "required_evidence_state": "SUFFICIENT"
+  },
+  "materialization": "Definition/Catalog hashes computed and validated through original C1;Assertion/Reference/Context constructed through original C2. Fixed templates are declarations only,not runtime proof."
+}

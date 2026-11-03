@@ -1,0 +1,8 @@
+# 逐字节保真（本项目硬约束）
+#
+# offline_qualification_v1/SOURCE_MANIFEST.json 以 sha256 逐文件钉住 139 个成员，
+# 任何换行符转换（core.autocrlf）都会让克隆后的字节与原树不一致，
+# 进而触发 ENV_SOURCE_OR_VERSION_MISMATCH / NATIVE_SOURCE_CHANGED_BEFORE_IMPORT。
+#
+# 因此：禁止 git 对任何文件做文本转换。这不是风格偏好，是可运行性前提。
+* -text

@@ -1,0 +1,22 @@
+{
+  "schema": "H56_ENV_ASSET_MANIFEST_V1",
+  "interface_version": "1.0.0",
+  "namespace": "ENV_QUALIFICATION_V1",
+  "members": [
+    {
+      "path": "environment_policy.json",
+      "size": 2247,
+      "sha256": "4608c0fbcf3617d3c5e059e4996bb36acb6e5d13ea6866e5a26c6bddcd97b5d7"
+    },
+    {
+      "path": "state_mapping.json",
+      "size": 2207,
+      "sha256": "375957a1882842c99ef4a1cba0f0e4b18142045e86effddef142070b688b4de9"
+    },
+    {
+      "path": "capability_catalog.json",
+      "size": 2187,
+      "sha256": "03d0dd4fa5e0aca893909f5bbfbdced08e299851504ac68a5ce01e20b59a311e"
+    }
+  ]
+}

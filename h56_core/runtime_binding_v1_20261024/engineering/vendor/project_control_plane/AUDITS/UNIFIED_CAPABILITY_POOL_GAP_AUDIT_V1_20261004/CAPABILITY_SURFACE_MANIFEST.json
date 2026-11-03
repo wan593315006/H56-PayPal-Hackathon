@@ -1,0 +1,74 @@
+{
+  "audit_id": "UNIFIED_CAPABILITY_POOL_GAP_AUDIT_V1_20261004",
+  "classification": "READ_ONLY_CANDIDATE_SURFACE_INVENTORY",
+  "definition_availability_separation": true,
+  "surfaces": [
+    {
+      "surface_id": "LOCAL_RUNTIME_MVP_V0_4_REGISTERED_CAPABILITY",
+      "role": "fixed_registered_capability_contract",
+      "evidence_strength": "EXECUTED",
+      "sources": [
+        "clean_core_projects/local_runtime_mvp_v0_4/src/local_runtime_mvp_v4/registry.py",
+        "clean_core_projects/local_runtime_mvp_v0_4/LOCAL_RUNTIME_MVP_V0_4_REQUIREMENT.md",
+        "project_control_plane/STATUS_REGISTRY.json"
+      ],
+      "definition_status": "EXISTING_CANDIDATE_FIXED_CATALOG",
+      "availability_status": "NOT_GENERICALLY_IMPLEMENTED",
+      "prohibited_inference": "registered capability does not imply Authority or execution"
+    },
+    {
+      "surface_id": "LOCAL_RUNTIME_MVP_V0_5_CAPABILITY_CHAIN_CATALOG",
+      "role": "fixed_three_chain_seven_definition_candidate_catalog",
+      "evidence_strength": "EXECUTED",
+      "sources": [
+        "clean_core_projects/local_runtime_mvp_v0_5/src/local_runtime_mvp_v5/references.py",
+        "clean_core_projects/local_runtime_mvp_v0_5/LOCAL_RUNTIME_MVP_V0_5_REQUIREMENT.md",
+        "project_control_plane/STATUS_REGISTRY.json"
+      ],
+      "definition_status": "EXISTING_CANDIDATE_FIXED_CATALOG",
+      "availability_status": "CHAIN_PHASE_LOCAL_ONLY",
+      "prohibited_inference": "fixed chain selection does not establish generic feasibility or multi-Agent coordination"
+    },
+    {
+      "surface_id": "CANDIDATE_RUNTIME_ONTOLOGY_V0_14_CAPABILITY",
+      "role": "candidate_vocabulary_and_attribute_contract",
+      "evidence_strength": "EXECUTED",
+      "sources": [
+        "clean_core_projects/candidate_runtime_context_projection_v0_14/src/candidate_runtime_context_projection/data/CANDIDATE_RUNTIME_ONTOLOGY_PROFILE_V1.json",
+        "project_control_plane/AUDITS/UNIFIED_RUNTIME_ONTOLOGY_ALIGNMENT_AND_EVOLUTION_AUDIT_V1_20261004/GAP_MATRIX.md"
+      ],
+      "definition_status": "EXISTING_CANDIDATE_VOCABULARY",
+      "availability_status": "NOT_IMPLEMENTED",
+      "prohibited_inference": "Ontology type does not resolve a capability or grant its use"
+    },
+    {
+      "surface_id": "DATA_READINESS_K2_CAPABILITY_INPUT",
+      "role": "source_bound_registered_local_profile_capability_requirement",
+      "evidence_strength": "EXECUTED",
+      "sources": [
+        "clean_core_projects/candidate_data_readiness_k2_governance_gate_v0_1/src/candidate_data_readiness_k2_gate/source_bound.py",
+        "project_control_plane/STATUS_REGISTRY.json"
+      ],
+      "definition_status": "PARTIAL_LOCAL_PROFILE",
+      "availability_status": "DATA_READINESS_PRECONDITION_ONLY",
+      "prohibited_inference": "readiness routing never predetermines K2 Allow, Authority, Commit, or action"
+    },
+    {
+      "surface_id": "LEGACY_CAPABILITY_PRESERVATION_CLASSIFICATION",
+      "role": "read_only_legacy_semantic_preservation_inventory",
+      "evidence_strength": "SOURCE",
+      "sources": [
+        "clean_core_projects/legacy_runtime_field_candidate_reconstruction_v1/src/legacy_runtime_field_candidate/preservation.py"
+      ],
+      "definition_status": "PRESERVATION_CLASSIFICATION_ONLY",
+      "availability_status": "NOT_ESTABLISHED",
+      "prohibited_inference": "legacy classification must not create an import, bridge, or live capability"
+    }
+  ],
+  "global_forbidden": [
+    "live_tool_registry", "dynamic_plugin_loading", "legacy_runtime_import_or_call",
+    "agent_creation", "multi_agent_autonomous_coordination", "authority_creation",
+    "commit_or_execution", "history_or_authoritative_state_write", "network", "mcp",
+    "provider", "bus", "pipeline", "formal_mlm_write"
+  ]
+}

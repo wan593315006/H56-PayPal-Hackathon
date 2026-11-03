@@ -1,0 +1,32 @@
+{
+  "audit_id": "UNIFIED_CAPABILITY_POOL_GAP_AUDIT_V1_20261004",
+  "status": "COMPLETE_READ_ONLY_CANDIDATE_FOUNDATION_AUDIT",
+  "baseline": {
+    "git_commit": "0a44ae5125e366a1de3d3070142992d884e44af1",
+    "git_tree": "1bb48aae079451df6c1752fbf1d2a834275c569c"
+  },
+  "managed_files": [
+    {"path": "README.md", "sha256": "eb1091b999280e6c2b3af2908b13904cfe022e7800d9e0378cf90e53db00dea0"},
+    {"path": "GAP_MATRIX.md", "sha256": "2ed9a2697af699c5fddd05d60b526ee37e6fdc0ab8a61450ad93a9638676cb5c"},
+    {"path": "CAPABILITY_SURFACE_MANIFEST.json", "sha256": "0f3e081263306227e372e6e7fd660a53ebb42b858db8e9b03b7a16d4455a5af0"},
+    {"path": "AGENT_ORGANIZATION_PRECHECK.md", "sha256": "71ab23a52ac712c2c9ce105137622e7ca9abf1d7ce2755ba72b69e369da7a54f"},
+    {"path": "SPEC/UNIFIED_CAPABILITY_POOL_GAP_AUDIT_CONTRACT_V1.md", "sha256": "d88383ba83b7f75f6114b941b90ff569ca0c2075348c4559959fcc38e47c1349"},
+    {"path": "EVIDENCE/SOURCE_MANIFEST.json", "sha256": "b9d019924464f5b9f90ad09371f3be1ee94022287b6fbeed74c826f4613c59e8"},
+    {"path": "EVIDENCE/TEST_REPLAY_MANIFEST.json", "sha256": "050ba040e5e7c86039f231226e3b6fa838819bc83022e5abda0e82c5ecd012cf"},
+    {"path": "ENVIRONMENT/FINGERPRINT.json", "sha256": "36d034be45f8f447cfbfa0658ca28ad55b6a2522e37bd5c34cc2a6d1eca93f78"}
+  ],
+  "executed_evidence": {
+    "LOCAL_RUNTIME_MVP_V0_4": {"python_3_9": "18 passed", "python_3_13": "18 passed"},
+    "LOCAL_RUNTIME_MVP_V0_5": {"python_3_9": "15 passed", "python_3_13": "15 passed"},
+    "CANDIDATE_RUNTIME_CONTEXT_PROJECTION_V0_14": {"python_3_9": "13 passed", "python_3_13": "13 passed"}
+  },
+  "verdict": {
+    "unified_capability_pool": "PARTIAL_CANDIDATE_FOUNDATION",
+    "capability_definition": "PARTIAL_SOURCE_AND_EXECUTED_EVIDENCE",
+    "capability_availability": "MISSING_GENERIC_CONTRACT",
+    "capability_feasible_set": "MISSING",
+    "multi_agent_runtime_organization": "NOT_ESTABLISHED",
+    "next_gate": "C1_CANONICAL_CAPABILITY_CONTRACT_V0_1"
+  },
+  "integrity_scope": "The eight listed C0 audit materials are hash-bound. This manifest excludes itself and does not change any referenced source project."
+}

@@ -1,0 +1,85 @@
+{
+  "manifest_id": "CLEAN_CORE:K1_STATE_DERIVATION_FOUNDATION:V1:MANIFEST",
+  "project_id": "CLEAN_CORE:K1_STATE_DERIVATION_FOUNDATION:V1",
+  "status": "CANDIDATE_STATE_DERIVATION_VERIFIED",
+  "generated_at": "2026-09-25",
+  "self_hash_excluded": true,
+  "predecessor": {
+    "project_id": "CLEAN_CORE:K0_CANONICAL_FACT_FOUNDATION:V1",
+    "manifest_path": "../k0_canonical_fact_foundation_v1/K0_PROJECT_MANIFEST.json",
+    "manifest_sha256": "892c725cb32416f1aad3a9bcc48fa1e80ee2153895d9f71b2db512ca7aee30c3",
+    "precondition_replayed_on": [
+      "Python 3.9.13",
+      "Python 3.13.12"
+    ],
+    "artifact_count": 18
+  },
+  "source_context": {
+    "parent_git_baseline_commit": "28f4d26d5a03e215b21f74d4216a4f1808e05b3c",
+    "read_only_oracle_workbench_commit": "4324388330f1ff4173215b248b5e746303f735ef",
+    "legacy_role": "READ_ONLY_ORACLE",
+    "candidate_project_source_commit": "11ace18aa9234137e5d7c5da1f5d17781fba2654",
+    "identity_interpretation": "parent_git_baseline_commit identifies the V2 base only. candidate_project_source_commit is the focused Git source identity containing K0/K1/K2 and the shared quality gate."
+  },
+  "semantic_contract": {
+    "state_formula": "S = C(H, compiler_version, schema_version, evidence_policy_version, policy_version)",
+    "candidate_only": true,
+    "authoritative_state_present": false,
+    "state_write_api": false,
+    "runtime_write": false,
+    "formal_mlm_write": false,
+    "external_side_effect": false,
+    "k2_k3_authorization": "NOT_GRANTED"
+  },
+  "verification": {
+    "python_3_9": {
+      "unit_tests": "13 passed",
+      "contract_checks": "8 passed",
+      "receipt": "evidence/k1_contract_validation_py39.json"
+    },
+    "python_3_13": {
+      "unit_tests": "13 passed",
+      "contract_checks": "8 passed",
+      "receipt": "evidence/k1_contract_validation_py313.json"
+    },
+    "legacy_candidate_compilation_execution": {
+      "receipt": "evidence/five_body_candidate_software_world_review.json",
+      "semantic_quality_status": "NOT_ADMISSIBLE_UNDER_CANDIDATE_SEMANTIC_REVIEW_QUALITY_GATE_V1",
+      "remediation_record": "../candidate_semantic_review_quality_gate_v1/REMEDIATION_RECORD.md",
+      "scope": "legacy compiler execution record only; not a semantic quality pass",
+      "runtime_authority": "not_authorized",
+      "formal_mlm_write": false,
+      "external_side_effect": false
+    },
+    "candidate_semantic_quality_review": {
+      "status": "PASS",
+      "quality_gate_id": "CANDIDATE_SEMANTIC_REVIEW_QUALITY_GATE_V1",
+      "quality_gate_contract": "../candidate_semantic_review_quality_gate_v1/CANDIDATE_SEMANTIC_REVIEW_QUALITY_GATE_CONTRACT.md",
+      "controlled_review_input": "K1_CANDIDATE_REVIEW_INPUT.md",
+      "receipts": {
+        "py39": "evidence/five_body_candidate_software_world_quality_review_py39.json",
+        "py313": "evidence/five_body_candidate_software_world_quality_review_py313.json"
+      },
+      "cross_python_receipt_sha256": "58807e6425908f060927c325034f74a76257b393016e9f37f0c9eef0d223227a",
+      "scope": "candidate structural admissibility only; not Kernel, Runtime, or production acceptance"
+    }
+  },
+  "artifact_hashes_sha256": {
+    ".gitignore": "6feaded4e28ea86e001a6751b4e3d960e8b7c31b9616ff9936b79297086e809b",
+    "evidence/five_body_candidate_software_world_quality_review_py313.json": "58807e6425908f060927c325034f74a76257b393016e9f37f0c9eef0d223227a",
+    "evidence/five_body_candidate_software_world_quality_review_py39.json": "58807e6425908f060927c325034f74a76257b393016e9f37f0c9eef0d223227a",
+    "evidence/five_body_candidate_software_world_review.json": "31bae35f725b11581d8d7c033b1ac0fe99037eb95fbad75b7f2a6d765aa61e90",
+    "evidence/k1_contract_validation_py313.json": "63b8b4855c32b67fc4d078a20ac477cc48574dd541e98adff2990ccfd86b02b9",
+    "evidence/k1_contract_validation_py39.json": "04007ef57adccc655f665e890d1576dc569aee0dc89fa35fd278cd803a163d4e",
+    "K1_CANDIDATE_REVIEW_INPUT.md": "47c595745255267dc2fec0ee3cd6bfd3796ce82a4b9278ffe94d80e62389a043",
+    "K1_PROJECT_CARD.md": "81a09fbf2e7beecefcea2b492ff01e17db9bf2a47f55320a8cdaf69648882e32",
+    "K1_REQUIREMENT.md": "8257fa0604f2815bc74b22ae36237c5b90af9e73240c24cf8b11fe2bf96f0934",
+    "K1_STATE_DERIVATION_CONTRACT.md": "2e26dfb646f91d28cb708286b85ea496fea315e5cb04cc6926e953347b6fcfab",
+    "README.md": "679ff9e18871e5b0110e43f623ac6f1ddeaff3d2151d4bf79f3bbca6561ca3c5",
+    "src/k1_state_derivation/__init__.py": "cf9c568ac2bee17fd4ffa738346bde0a803d9713e45a6de656642946370a6129",
+    "src/k1_state_derivation/state_compiler.py": "b511aa6a41249a37e535edca0bad55349ac0ac62ebef282c54a6cc0091d32b09",
+    "tests/test_state_derivation_foundation.py": "39f0098f85a1edc44377b61e5fc81c629698efd4dcfc6576a732e44509b1a415",
+    "tools/review_with_five_body.py": "f14cb9ff7e53cb970b0f05591f0261fbcaa4132470fb5a2dad82247032159739",
+    "tools/verify_k1_contract.py": "8a6275ff7a988fb818ff56fa9980b293294f2ceeb480b147de9b95ec5c1c677d"
+  }
+}

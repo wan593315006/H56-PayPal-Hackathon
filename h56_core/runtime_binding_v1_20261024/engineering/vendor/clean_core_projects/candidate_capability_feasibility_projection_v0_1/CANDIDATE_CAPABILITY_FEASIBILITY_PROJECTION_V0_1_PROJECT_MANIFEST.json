@@ -1,0 +1,84 @@
+{
+  "boundaries": {
+    "agent_creation_or_coordination": false,
+    "authority_or_commit_creation": false,
+    "history_state_runtime_formal_mlm_write": false,
+    "legacy_import_or_call": false,
+    "network_mcp_provider_bus_pipeline": false,
+    "real_capability_availability": false,
+    "tool_or_external_execution": false
+  },
+  "project_id": "CANDIDATE_CAPABILITY_FEASIBILITY_PROJECTION_V0_1",
+  "schema_version": "1.0.0",
+  "source_files": [
+    {
+      "path": ".gitignore",
+      "sha256": "882b1e62ba9093d6065e5fa32b50b728e10c4052bc20080a56be07b6c64669e1"
+    },
+    {
+      "path": "README.md",
+      "sha256": "b5bd2b2f0bde71b7015d899c206eae8e9b70f89990d7c86750283431eb181d69"
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "0b6beb30b31f22cf6b319cdbb2c7e219d924e5049cdeefe3b43c6350d9ee9671"
+    },
+    {
+      "path": "CANDIDATE_CAPABILITY_FEASIBILITY_PROJECTION_V0_1_REQUIREMENT.md",
+      "sha256": "f6fd9cb2de2db8c0a2502894a333b648983755259629bb34bcb38706e6d79f21"
+    },
+    {
+      "path": "CANDIDATE_CAPABILITY_FEASIBILITY_PROJECTION_V0_1_PROJECT_CARD.md",
+      "sha256": "30dd96d3d2f31a0a41fb0f9804b00db623c3a906536e445c04c0b13bff668f2a"
+    },
+    {
+      "path": "C2_C1_CONTRACT_BINDING_V1.json",
+      "sha256": "5c78350d3890ec54d93af57127216ba17b5292ecf39160236854a794aa7a9f1c"
+    },
+    {
+      "path": "CANDIDATE_CAPABILITY_FEASIBILITY_PROJECTION_V0_1_STRUCTURED_SEMANTIC_REVIEW_INPUT_V1.json",
+      "sha256": "ec7b1da1f88624e49fe25562b114a6f590a99cacf2adb8a35dd6238a4ca4870f"
+    },
+    {
+      "path": "src/candidate_capability_feasibility_projection/__init__.py",
+      "sha256": "e9c7cf809f3233facd777757e538030664b3119aeb6dee7d46d46155c08c72b8"
+    },
+    {
+      "path": "src/candidate_capability_feasibility_projection/contracts.py",
+      "sha256": "638d1644838758659613dc8073468686eb35fa7de75a50855164550faa60dd53"
+    },
+    {
+      "path": "src/candidate_capability_feasibility_projection/evaluator.py",
+      "sha256": "b26b3cb09c1b54472cc86a22c9654c950ce3ed74647a8d591cf4e02934c8605b"
+    },
+    {
+      "path": "tests/test_candidate_capability_feasibility_projection_v0_1.py",
+      "sha256": "9cfa9b9879681b4062bdfdd83297d444138fbaff218a245bdf84e60d69a06f16"
+    },
+    {
+      "path": "tools/audit_candidate_capability_feasibility_projection_v0_1_boundary.py",
+      "sha256": "0946acb77fbeac90c3984c2e3fadd8249271aeaf7e4c78cc2607a5bcb89f92ef"
+    },
+    {
+      "path": "tools/verify_c1_canonical_capability_contract_binding.py",
+      "sha256": "b918358ac3464f7d58a8ee280fa87a027881dbbe1174675955a3f701821100e4"
+    },
+    {
+      "path": "tools/build_candidate_capability_feasibility_projection_v0_1_manifest.py",
+      "sha256": "2748df89ae5225c466bb2cd8367470db7c901ae799b37eda8545bab1e4d0b1c8"
+    },
+    {
+      "path": "tools/verify_candidate_capability_feasibility_projection_v0_1_manifest.py",
+      "sha256": "9921b1f5a19ddf0203a8327f70ed761d1085a7903b5ee079988ffcc6b7f1430a"
+    },
+    {
+      "path": "tools/verify_candidate_capability_feasibility_projection_v0_1_raw_git_identity.py",
+      "sha256": "5ef4c169987e2e611dbe9daa5faa900752c6c97dd36bfa6eb4010541a9995b50"
+    },
+    {
+      "path": "tools/review_with_five_body.py",
+      "sha256": "97276d2b7239229eeb57a011072002a6dd4ca44b265742c15a45ce5082a5148a"
+    }
+  ],
+  "status": "CANDIDATE_ONLY"
+}

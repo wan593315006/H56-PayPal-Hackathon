@@ -1,0 +1,8 @@
+{
+  "binding_id": "C2_C1_CANONICAL_CAPABILITY_CONTRACT_BINDING_V1",
+  "project_id": "CANDIDATE_CANONICAL_CAPABILITY_CONTRACT_V0_1",
+  "project_manifest_path": "clean_core_projects/candidate_canonical_capability_contract_v0_1/CANDIDATE_CANONICAL_CAPABILITY_CONTRACT_V0_1_PROJECT_MANIFEST.json",
+  "project_manifest_sha256": "9ed5f996152a4de096206a54f09e9d6b8b2866a5ef2593cd1a9c619ea2e0c723",
+  "artifact_commit": "b01fa57f22c108e60ab26b1b285417d50f62b10c",
+  "required_status": "CANDIDATE_ONLY"
+}

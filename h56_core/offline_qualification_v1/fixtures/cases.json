@@ -1,0 +1,609 @@
+{
+  "schema": "H56_ENV_FROZEN_CASES_V1",
+  "evidence_grade": "SYNTHETIC_ONLY",
+  "base_as_of": "2026-10-24T00:05:00Z",
+  "base_envelope": {
+    "schema": "H56_ENV_EVIDENCE_V1",
+    "evidence_set_id": "evidence_C",
+    "evidence_grade": "SYNTHETIC_ONLY",
+    "source_id": "SYNTHETIC_FIXTURE_V1",
+    "source_version": "1.0.0",
+    "environment_id": "synthetic_env",
+    "environment_role": "SIMULATED_OPERATOR_METADATA_HOST",
+    "task_ref": {
+      "task_id": "env_demo_task",
+      "task_kind": "TASK:ENV_QUALIFICATION_ONLY",
+      "origin": "SYNTHETIC_DEMO_TASK",
+      "origin_record_ref": "SYNTHETIC_TASK_DESCRIPTOR_V1",
+      "task_descriptor_sha256": "d019eeff6cf27e04256e82dab6253f020f7e51af4ee13c5afeaa3951231b3727"
+    },
+    "items": [
+      {
+        "evidence_id": "item_0",
+        "field": "app_container",
+        "knowledge": "KNOWN",
+        "value": false,
+        "source_id": "SYNTHETIC_FIXTURE_V1",
+        "observed_at": "2026-10-24T00:04:00Z",
+        "coverage": "FIELD_ONLY"
+      },
+      {
+        "evidence_id": "item_1",
+        "field": "integrity_rid",
+        "knowledge": "KNOWN",
+        "value": 8192,
+        "source_id": "SYNTHETIC_FIXTURE_V1",
+        "observed_at": "2026-10-24T00:04:00Z",
+        "coverage": "FIELD_ONLY"
+      },
+      {
+        "evidence_id": "item_2",
+        "field": "outer_job_clear",
+        "knowledge": "KNOWN",
+        "value": true,
+        "source_id": "SYNTHETIC_FIXTURE_V1",
+        "observed_at": "2026-10-24T00:04:00Z",
+        "coverage": "FULL_ANCESTOR_CHAIN"
+      },
+      {
+        "evidence_id": "item_3",
+        "field": "host_directory_normal",
+        "knowledge": "KNOWN",
+        "value": true,
+        "source_id": "SYNTHETIC_FIXTURE_V1",
+        "observed_at": "2026-10-24T00:04:00Z",
+        "coverage": "FIELD_ONLY"
+      },
+      {
+        "evidence_id": "item_4",
+        "field": "dependencies_available",
+        "knowledge": "KNOWN",
+        "value": true,
+        "source_id": "SYNTHETIC_FIXTURE_V1",
+        "observed_at": "2026-10-24T00:04:00Z",
+        "coverage": "FIELD_ONLY"
+      },
+      {
+        "evidence_id": "item_5",
+        "field": "supporting_attestation",
+        "knowledge": "KNOWN",
+        "value": true,
+        "source_id": "SYNTHETIC_FIXTURE_V1",
+        "observed_at": "2026-10-24T00:04:00Z",
+        "coverage": "FIELD_ONLY"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "A01",
+      "input": "C基准改AppContainer=true、integrity=4096",
+      "expected": "原C2 INFEASIBLE / DECLARED_POLICY_DENIED；候选BLOCKED",
+      "variants": [
+        {
+          "fields": {
+            "app_container": true,
+            "integrity_rid": 4096
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "A02",
+      "input": "仅Low，AppContainer=false",
+      "expected": "INFEASIBLE；不能把非AppContainer当全部满足",
+      "variants": [
+        {
+          "fields": {
+            "integrity_rid": 4096
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "A03",
+      "input": "仅AppContainer=true，Medium",
+      "expected": "INFEASIBLE；不能因Medium默认通过",
+      "variants": [
+        {
+          "fields": {
+            "app_container": true
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "A04",
+      "input": "已知A03违反+outer_job_clear未知",
+      "expected": "原ALL=false、原C2 INFEASIBLE；不误变FEASIBLE或覆盖原因",
+      "variants": [
+        {
+          "fields": {
+            "app_container": true
+          },
+          "unknown": [
+            "outer_job_clear"
+          ]
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "A05",
+      "input": "任务或环境role不匹配",
+      "expected": "INPUT_REJECTED，原核0",
+      "variants": [
+        {
+          "envelope": {
+            "environment_role": "UNREGISTERED_ROLE"
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "A06",
+      "input": "将原worker观察形状当operator包输入",
+      "expected": "Schema/role拒绝，原核0",
+      "variants": [
+        {
+          "envelope": {
+            "environment_role": "WORKER"
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "A07",
+      "input": "合成输入字节被篡改但提供自封新hash",
+      "expected": "INPUT_REJECTED，原核0",
+      "variants": [
+        {
+          "wrong_external_hash": true
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "A08",
+      "input": "合成A输出声称CURRENT_HOST/正式Authority",
+      "expected": "边界验证拒绝该输出",
+      "variants": [
+        {
+          "forged_output": "CURRENT_HOST_OR_AUTHORITY"
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B01",
+      "input": "outer_job_clear UNKNOWN/null",
+      "expected": "policy DECLARED_UNKNOWN→原C2 DEFER / POLICY_CONTEXT_NOT_EVIDENCED",
+      "variants": [
+        {
+          "unknown": [
+            "outer_job_clear"
+          ]
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B02",
+      "input": "outer_job_clear=true但IMMEDIATE_JOB_ONLY",
+      "expected": "规范为未知→DEFER",
+      "variants": [
+        {
+          "coverage": {
+            "outer_job_clear": "IMMEDIATE_JOB_ONLY"
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B03",
+      "input": "某策略字段age301秒",
+      "expected": "该值不用于满足，policy未知→DEFER",
+      "variants": [
+        {
+          "observed_at": {
+            "outer_job_clear": "2026-10-23T23:59:59Z"
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B04",
+      "input": "未来时间、无时区或非法时间",
+      "expected": "INPUT_REJECTED，原核0",
+      "variants": [
+        {
+          "observed_at": {
+            "outer_job_clear": "2026-10-24T00:05:01Z"
+          }
+        },
+        {
+          "observed_at": {
+            "outer_job_clear": "2026-10-24T00:04:00"
+          }
+        },
+        {
+          "observed_at": {
+            "outer_job_clear": "2026-02-30T00:00:00Z"
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B05",
+      "input": "五个策略字段均当前满足，仅supporting_attestation缺失",
+      "expected": "policy ALLOWED，evidence INSUFFICIENT→NEED_MORE_EVIDENCE / EVIDENCE_REQUIREMENT_NOT_SATISFIED",
+      "variants": [
+        {
+          "remove": [
+            "supporting_attestation"
+          ]
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B06",
+      "input": "UNKNOWN但value=true；或KNOWN却null",
+      "expected": "INPUT_REJECTED，原核0",
+      "variants": [
+        {
+          "knowledge_value": {
+            "outer_job_clear": {
+              "knowledge": "UNKNOWN",
+              "value": true
+            }
+          }
+        },
+        {
+          "knowledge_value": {
+            "outer_job_clear": {
+              "knowledge": "KNOWN",
+              "value": null
+            }
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B07",
+      "input": "缺某策略字段；或age恰300秒",
+      "expected": "缺项→DEFER；边界300且其他均满足→FEASIBLE",
+      "variants": [
+        {
+          "remove": [
+            "outer_job_clear"
+          ]
+        },
+        {
+          "observed_at": {
+            "outer_job_clear": "2026-10-24T00:00:00Z"
+          }
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B08",
+      "input": "同字段重复值/矛盾值或重复evidence_id",
+      "expected": "INPUT_REJECTED，原核0",
+      "variants": [
+        {
+          "duplicate_field": true
+        },
+        {
+          "conflicting_field": true
+        },
+        {
+          "duplicate_id": true
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B09",
+      "input": "规则/来源版本错配，或合成authority假设资产缺失/改写",
+      "expected": "INPUT_REJECTED，原核0",
+      "variants": [
+        {
+          "envelope": {
+            "source_version": "9.0.0"
+          }
+        },
+        {
+          "source_asset_drift": true
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "B10",
+      "input": "明确依赖不可用+另一字段过期/未知",
+      "expected": "known false优先→INFEASIBLE",
+      "variants": [
+        {
+          "fields": {
+            "dependencies_available": false
+          },
+          "unknown": [
+            "outer_job_clear"
+          ]
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "C01",
+      "input": "冻结C基准",
+      "expected": "原C2 FEASIBLE / DECLARED_CANDIDATE_FEASIBILITY_MATCH；ALLOW_CANDIDATE",
+      "variants": [
+        {}
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "C04",
+      "input": "viewer读取已提交assessment",
+      "expected": "校验并显示原生结果与别名、来源等级、规则、补证及父引用",
+      "variants": [
+        {
+          "record_view": true
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "C05",
+      "input": "换入Finance/DevSecOps能力ID、Mapping或错误C1版本",
+      "expected": "准入层拒绝，原核0",
+      "variants": [
+        {
+          "foreign_capability": "CAP:FINANCE_REFUND"
+        },
+        {
+          "foreign_mapping": "DEVSECOPS"
+        },
+        {
+          "foreign_C1_version": "9.0.0"
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "C06",
+      "input": "integrity或budget用bool/字符串/浮点替代整数",
+      "expected": "INPUT_REJECTED，原核0",
+      "variants": [
+        {
+          "strict_type_field": "integrity_rid",
+          "invalid_value": true
+        },
+        {
+          "strict_type_field": "integrity_rid",
+          "invalid_value": "8192"
+        },
+        {
+          "strict_type_field": "integrity_rid",
+          "invalid_value": 1.5
+        },
+        {
+          "strict_type_field": "budget_available_units",
+          "invalid_value": true
+        },
+        {
+          "strict_type_field": "budget_available_units",
+          "invalid_value": "8192"
+        },
+        {
+          "strict_type_field": "budget_available_units",
+          "invalid_value": 1.5
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "R01",
+      "input": "B01之后显式提交完整新C证据",
+      "expected": "新assessment/新History/新Snapshot/新decision，FEASIBLE；旧DEFER与所有材料hash不变；有父关联和实际同核调用",
+      "variants": [
+        {
+          "parent_case": "B01",
+          "child_case": "C01"
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "R02",
+      "input": "A01之后新满足证据",
+      "expected": "新候选可FEASIBLE；旧INFEASIBLE保持不变；原task descriptor不变，零dispatch/重新派发。**不据此声称真实TaskService BLOCKED已重开**",
+      "variants": [
+        {
+          "parent_case": "A01",
+          "child_case": "C01"
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "R03",
+      "input": "同task_id/request_id、同材料再次请求或两个并发请求",
+      "expected": "已commit返回原引用、无重复决定/计算；pending返回REQUEST_IN_PROGRESS_OR_RECOVERY_REQUIRED；只有独占claim赢家可计算。只在批准fixture根测试并发，不启动产品执行器",
+      "variants": [
+        {
+          "same_key": "COMMITTED_RETURN"
+        },
+        {
+          "same_key": "PENDING_STOP"
+        },
+        {
+          "same_key": "CONCURRENT_CLAIM"
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "R04",
+      "input": "复用task_id/request_id却换evidence/as_of/规则版本",
+      "expected": "同一幂等键对应不同request_digest，拒绝IDEMPOTENCY_CONFLICT，不覆盖、零原核、无自动重试；不是仅测试两个不同的内容hash",
+      "variants": [
+        {
+          "same_key_different": "evidence"
+        },
+        {
+          "same_key_different": "as_of"
+        },
+        {
+          "same_key_different": "version"
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "X01",
+      "input": "输入引用UNC/..、外部绝对路径、成员路径或链接路径字符串",
+      "expected": "在访问前拒绝；不得实际读取相邻工程/凭据；原始恶意字符串仅作数据",
+      "variants": [
+        {
+          "malicious_path": "../other"
+        },
+        {
+          "malicious_path": "\\\\other\\private"
+        },
+        {
+          "malicious_path": "C:\\other\\secret"
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "X02",
+      "input": "预登记source/asset/output根出现reparse/symlink/重复root或漂移",
+      "expected": "停止、保存原因；负例只在获准私有夹具内，不探测其他工程",
+      "variants": [
+        {
+          "metadata": "reparse"
+        },
+        {
+          "metadata": "duplicate_root"
+        },
+        {
+          "metadata": "source_drift"
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "X03",
+      "input": "缺依赖、源hash/manifest不符、伪预载模块、pyc或引用环",
+      "expected": "纯桥在导入/计算前拒绝，不回退相邻仓库或网络安装",
+      "variants": [
+        {
+          "import_fault": "missing_source"
+        },
+        {
+          "import_fault": "fake_preload"
+        },
+        {
+          "import_fault": "pyc"
+        },
+        {
+          "import_fault": "cycle"
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "X04",
+      "input": "原版K1收到两个冲突ACTIVE事实投影",
+      "expected": "原生StateCompilationError；记录失败stage，Snapshot/Projection=null，不latest-wins",
+      "variants": [
+        {
+          "native_conflicting_active_facts": true
+        }
+      ],
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "X05",
+      "input": "所有操作及异常路径检查",
+      "expected": "无ctypes/Token、Win32资源、CandidateHost、旧loader/pipeline.compute、TaskService.dispatch、网络/Docker/API；检查静态闭包和受控拒绝桩调用计数，**不启动真实危险探针**",
+      "variants": [
+        {
+          "forbidden_calls_expected": 0
+        }
+      ],
+      "status": "NOT_RUN"
+    }
+  ],
+  "future_contracts": [
+    {
+      "id": "C02",
+      "first_full_acceptance": "C",
+      "A_prerequisite": "A不记双Python通过；C需同一冻结release、同request_body、不同批准root实际调用，不能命中claim缓存。",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "C03",
+      "first_full_acceptance": "C",
+      "A_prerequisite": "A/B不记独立新进程验收；C另批外层进程真重算，不读旧artifact冒充计算。",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "C07",
+      "first_full_acceptance": "B",
+      "A_prerequisite": "A验证已启用分支的输出/退出约定，未启用重算不算通过24；B补完整重算相关出口，受控夹具与真失配证据分开。",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "R05",
+      "first_full_acceptance": "B",
+      "A_prerequisite": "A必须核父hash/已提交事件/task/environment、根父parent=null，缺失/错绑/更深/深度不明即拒绝；B才覆盖完整<=16祖先与环。",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "R06",
+      "first_full_acceptance": "B",
+      "A_prerequisite": "A已绑定显式as_of/TTL300及过期不放行，禁止刷新旧决定；B增加显式同版本重算及新as_of成对比较。",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "R07",
+      "first_full_acceptance": "B",
+      "A_prerequisite": "A已具备claim先于core、artifact先于commit、pending/stale停、写失败不成功/不自动清理；B扩大故障注入覆盖。",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "R08",
+      "first_full_acceptance": "B",
+      "A_prerequisite": "A已拒绝input/source/parent/artifact基本hash漂移、旧决定不可覆盖；B完整覆盖Journal/Projection重封装与重算篡改。",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "X06",
+      "first_full_acceptance": "B",
+      "A_prerequisite": "A逐请求隔离及安全异常停批基础即具备，暂不启批次调度；B验证多任务普通拒绝与全局安全停止的差异。",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "X07",
+      "first_full_acceptance": "B",
+      "A_prerequisite": "A所有输入/节点/事件/输出/时间预算及基本失效关闭即具备，B才做完整边界组合；绝不推迟安全实现。",
+      "status": "NOT_RUN"
+    }
+  ],
+  "case_status": "FIXTURE_SOURCE_ONLY_NOT_OBSERVED_HOST_FACTS"
+}

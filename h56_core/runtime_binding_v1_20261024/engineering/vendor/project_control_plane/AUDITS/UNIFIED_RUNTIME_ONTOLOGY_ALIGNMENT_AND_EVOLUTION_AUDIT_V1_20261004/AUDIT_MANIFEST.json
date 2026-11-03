@@ -1,0 +1,32 @@
+{
+  "audit_id": "UNIFIED_RUNTIME_ONTOLOGY_ALIGNMENT_AND_EVOLUTION_AUDIT_V1_20261004",
+  "status": "COMPLETE_READ_ONLY_RECOMMENDATION_ONLY",
+  "baseline": {
+    "git_commit": "22f3c9026380c6d6aeb99e8f5fc90127f632c043",
+    "git_tree": "c1dbc86e92fb0cc8fbe145029eec4626b343adb7"
+  },
+  "managed_files": [
+    {"path": "README.md", "sha256": "2b8c234acc3e99a53d504c7a6ccbc2dec280e6f3e2be59ad3c7f39b2677fe3bf"},
+    {"path": "GAP_MATRIX.md", "sha256": "320be6803a2b4915f858dc4ecb17cc71bf42905c98e7e1ea623a06e25136d948"},
+    {"path": "SPEC/UNIFIED_RUNTIME_ONTOLOGY_ALIGNMENT_AND_EVOLUTION_AUDIT_CONTRACT_V1.md", "sha256": "48d2e9f598a1596ee420a5e61e00781f134a7c196fd64bb0f34f73171ba75e85"},
+    {"path": "RECOMMENDATIONS/CORE_AND_EXTENSION_TERMS.json", "sha256": "88bc2c84a845a03f8103a06cb258458d0341719349297be6b361f633333b0cef"},
+    {"path": "RECOMMENDATIONS/RELATION_VOCABULARY.md", "sha256": "90c01f9f298e0cf91acf22875b668d55c75a053e0b3d6f0cc41eb12a15c790bd"},
+    {"path": "RECOMMENDATIONS/VERSION_AND_MIGRATION_RULES.md", "sha256": "b136e5ed5dda9bd425af4abb446eee23904938fede59049f48f264525b3afad4"},
+    {"path": "RECOMMENDATIONS/AUTHORITY_BOUNDARY.md", "sha256": "c740f54cb48290b6d9827072eef94340d011d52a8392a7642fef4f5f8907c507"},
+    {"path": "EVIDENCE/SOURCE_MANIFEST.json", "sha256": "ef78d0d7704d2f95d858fb01f27cdd4246ee9058282bd9faa6ebbc081177f63b"},
+    {"path": "EVIDENCE/CALL_CHAIN_MANIFEST.json", "sha256": "7045081ad23d5cc259f00dfaf7b240967e6b21b989e6795dfb8076a378324f74"},
+    {"path": "EVIDENCE/TEST_REPLAY_MANIFEST.json", "sha256": "4aaff2fce49970a9cc380bbb29565e913589434c85a1f997823fc03aadc402c6"},
+    {"path": "ENVIRONMENT/FINGERPRINT.json", "sha256": "cd065478477fd23bd753dcf28f538ce958f6a820a01ffdd5ccbb7f01629e6882"}
+  ],
+  "integrity_scope": "This manifest binds the eleven listed audit materials. It intentionally excludes itself and does not attest to source-project or future-profile mutability.",
+  "verdict": {
+    "candidate_ontology_seed": "EXISTING",
+    "unified_runtime_ontology_profile_v1_1": "RECOMMENDED_AWAITING_CONTROLLER_DECISION",
+    "ontology_runtime_or_kernel_ownership": "CONFLICT",
+    "legacy_direct_import_or_bridge": "FORBIDDEN"
+  },
+  "authority_boundary": {
+    "allowed": ["read_only_source_mapping", "semantic_identifier_recommendation", "profile_compatibility_recommendation", "replay_evidence_review"],
+    "forbidden": ["profile_replacement", "runtime_kernel_change", "history_append", "authoritative_state_write", "runtime_write", "formal_mlm_write", "authority_or_commit_creation", "legacy_direct_bridge", "network", "mcp", "provider", "tool_call", "external_execution"]
+  }
+}

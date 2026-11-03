@@ -1,0 +1,58 @@
+{
+  "boundary": {
+    "authoritative_state_present": false,
+    "candidate_only": true,
+    "external_side_effect": false,
+    "formal_mlm_write": false,
+    "provider_or_mcp_call": false,
+    "runtime_write": false
+  },
+  "checks": [
+    {
+      "artifact_count": 18,
+      "expected_k0_manifest_sha256": "dcc14e2b8dbdc3b715b867b119c5c6258d00d3e9c54305056e193f4d14260b85",
+      "k0_manifest_sha256": "892c725cb32416f1aad3a9bcc48fa1e80ee2153895d9f71b2db512ca7aee30c3",
+      "name": "k0_precondition_manifest_and_artifacts_verified",
+      "status": "PASS"
+    },
+    {
+      "name": "same_history_and_versions_replay_deterministically",
+      "status": "PASS"
+    },
+    {
+      "name": "version_sensitive_interpretation_is_provenance_visible",
+      "status": "PASS"
+    },
+    {
+      "name": "candidate_decision_cannot_directly_project_state",
+      "status": "PASS"
+    },
+    {
+      "name": "non_contributing_fact_cannot_silently_carry_state_projection",
+      "status": "PASS"
+    },
+    {
+      "name": "ambiguous_active_projection_fails_closed",
+      "status": "PASS"
+    },
+    {
+      "name": "snapshot_cache_is_derived_not_authoritative",
+      "status": "PASS"
+    },
+    {
+      "forbidden_public_operations_found": [],
+      "name": "no_arbitrary_state_or_cache_writer_api",
+      "status": "PASS"
+    }
+  ],
+  "environment": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.9.13"
+  },
+  "receipt_id": "K1_STATE_DERIVATION_FOUNDATION_CONTRACT_VALIDATION_V1",
+  "source_hashes_sha256": {
+    "src/k1_state_derivation/__init__.py": "cf9c568ac2bee17fd4ffa738346bde0a803d9713e45a6de656642946370a6129",
+    "src/k1_state_derivation/state_compiler.py": "b511aa6a41249a37e535edca0bad55349ac0ac62ebef282c54a6cc0091d32b09"
+  },
+  "status": "PASS"
+}

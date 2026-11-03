@@ -1,0 +1,53 @@
+{
+  "schema": "H56_ENV_POLICY_V1",
+  "interface_version": "1.0.0",
+  "role": "SIMULATED_OPERATOR_METADATA_HOST",
+  "ttl_seconds": 300,
+  "required_fields": [
+    "app_container",
+    "integrity_rid",
+    "outer_job_clear",
+    "host_directory_normal",
+    "dependencies_available",
+    "supporting_attestation"
+  ],
+  "version_tuple": {
+    "compiler_version": "K1:STATE_COMPILER:V1",
+    "schema_version": "1.0.0",
+    "evidence_policy_version": "1.0.0",
+    "policy_version": "1.0.0"
+  },
+  "method_declaration": {
+    "method_id": "METHOD:ENV_QUALIFICATION_V1",
+    "version": "1.0.0",
+    "scope": "OFFLINE_SYNTHETIC_CANDIDATE_ONLY"
+  },
+  "synthetic_assumption": {
+    "scope": "SYNTHETIC_CANDIDATE_ASSUMPTION_ONLY",
+    "authority_state": "DECLARED_SUFFICIENT",
+    "authority_granted": false,
+    "execution_permitted": false
+  },
+  "budget_declaration": {
+    "available_units": 1,
+    "scope": "LOGICAL_CANDIDATE_UNITS_NOT_OS_QUOTA"
+  },
+  "identity_preimages": {
+    "input": "{\"grade\":\"SYNTHETIC_ONLY\",\"id\":\"ENV_QUALIFICATION_V1:input\",\"version\":\"1.0.0\"}",
+    "output": "{\"grade\":\"SYNTHETIC_ONLY\",\"id\":\"ENV_QUALIFICATION_V1:output\",\"version\":\"1.0.0\"}",
+    "precondition": "{\"grade\":\"SYNTHETIC_ONLY\",\"id\":\"ENV_QUALIFICATION_V1:precondition\",\"version\":\"1.0.0\"}",
+    "scope": "{\"grade\":\"SYNTHETIC_ONLY\",\"id\":\"ENV_QUALIFICATION_V1:scope\",\"version\":\"1.0.0\"}",
+    "resource": "{\"grade\":\"SYNTHETIC_ONLY\",\"id\":\"ENV_QUALIFICATION_V1:resource\",\"version\":\"1.0.0\"}",
+    "failure": "{\"grade\":\"SYNTHETIC_ONLY\",\"id\":\"ENV_QUALIFICATION_V1:failure\",\"version\":\"1.0.0\"}",
+    "observation": "{\"grade\":\"SYNTHETIC_ONLY\",\"id\":\"ENV_QUALIFICATION_V1:observation\",\"version\":\"1.0.0\"}",
+    "source": "{\"grade\":\"SYNTHETIC_ONLY\",\"id\":\"ENV_QUALIFICATION_V1:source\",\"version\":\"1.0.0\"}",
+    "task": "{\"origin\":\"SYNTHETIC_DEMO_TASK\",\"origin_record_ref\":\"SYNTHETIC_TASK_DESCRIPTOR_V1\",\"task_id\":\"env_demo_task\",\"task_kind\":\"TASK:ENV_QUALIFICATION_ONLY\"}"
+  },
+  "boundary": {
+    "candidate_planning_only": true,
+    "authority_granted": false,
+    "execution_permitted": false,
+    "formal_history_write": false,
+    "business_action_calls": 0
+  }
+}

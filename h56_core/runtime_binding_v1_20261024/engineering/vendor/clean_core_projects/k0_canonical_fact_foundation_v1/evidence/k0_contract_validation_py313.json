@@ -1,0 +1,48 @@
+{
+  "boundary": {
+    "authoritative_state_present": false,
+    "candidate_only": true,
+    "external_side_effect": false,
+    "formal_mlm_write": false,
+    "provider_or_mcp_call": false,
+    "runtime_write": false
+  },
+  "checks": [
+    {
+      "name": "canonical_fact_identity_is_deterministic",
+      "status": "PASS"
+    },
+    {
+      "name": "admitted_fact_cannot_be_overwritten",
+      "status": "PASS"
+    },
+    {
+      "name": "correction_is_new_fact_not_overwrite",
+      "status": "PASS"
+    },
+    {
+      "name": "stale_writer_fails_closed",
+      "status": "PASS"
+    },
+    {
+      "name": "rejected_candidate_has_no_direct_state_effect",
+      "status": "PASS"
+    },
+    {
+      "forbidden_public_operations_found": [],
+      "name": "no_arbitrary_history_or_state_write_api",
+      "status": "PASS"
+    }
+  ],
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.12"
+  },
+  "receipt_id": "K0_CANONICAL_FACT_FOUNDATION_CONTRACT_VALIDATION_V1",
+  "source_hashes_sha256": {
+    "src/k0_fact_foundation/canonical.py": "ac22904b2ff296146671098db80bf5ab5e3ae555e62c48ff61ebf4c91da3b96f",
+    "src/k0_fact_foundation/contracts.py": "a895e765d4fcb96655f6e8e074c1c8b4e19c660ab5130401d295b784adf25841",
+    "src/k0_fact_foundation/history.py": "aade19b8d43dc2acb14dbe68e5f037b0532a7736f2f0afd5853488fe970545be"
+  },
+  "status": "PASS"
+}

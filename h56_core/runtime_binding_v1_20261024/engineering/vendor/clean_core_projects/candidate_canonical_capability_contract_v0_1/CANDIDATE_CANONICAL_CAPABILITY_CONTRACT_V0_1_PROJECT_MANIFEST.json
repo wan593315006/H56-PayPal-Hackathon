@@ -1,0 +1,84 @@
+{
+  "boundaries": {
+    "agent_creation_or_coordination": false,
+    "authority_or_commit_creation": false,
+    "capability_availability": false,
+    "history_state_runtime_formal_mlm_write": false,
+    "legacy_import_or_call": false,
+    "network_mcp_provider_bus_pipeline": false,
+    "tool_or_external_execution": false
+  },
+  "project_id": "CANDIDATE_CANONICAL_CAPABILITY_CONTRACT_V0_1",
+  "schema_version": "1.0.0",
+  "source_files": [
+    {
+      "path": ".gitignore",
+      "sha256": "882b1e62ba9093d6065e5fa32b50b728e10c4052bc20080a56be07b6c64669e1"
+    },
+    {
+      "path": "README.md",
+      "sha256": "d3e6dd0e9740d50bb151596e0d90a339f3191bc7fe960d29f589c53aecbba78f"
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "860e3f6b532a838a248bc42165c45278b0f1304bde7cb995ed01383c81cd9a8f"
+    },
+    {
+      "path": "CANDIDATE_CANONICAL_CAPABILITY_CONTRACT_V0_1_REQUIREMENT.md",
+      "sha256": "bfbd4a298bd0d7dcf3860b5255cb3935ef70cafcc9ae35f2e456082b1f8e53e9"
+    },
+    {
+      "path": "CANDIDATE_CANONICAL_CAPABILITY_CONTRACT_V0_1_PROJECT_CARD.md",
+      "sha256": "75f8d2ae79fd8852af6d21aa50821e78aef58228e56e1943d3794a188558c280"
+    },
+    {
+      "path": "C1_C0_AUDIT_BINDING_V1.json",
+      "sha256": "9dfad7c5fd22fa58379ceca71bd36b363a901842fa2cd05744f873e70ea7bf68"
+    },
+    {
+      "path": "CANDIDATE_CANONICAL_CAPABILITY_CONTRACT_V0_1_STRUCTURED_SEMANTIC_REVIEW_INPUT_V1.json",
+      "sha256": "5baa4d0ce7876fa9affd50dadde230329790b1b61f1358b7cab76b82f98e20ba"
+    },
+    {
+      "path": "src/candidate_canonical_capability_contract/__init__.py",
+      "sha256": "1c04029b47e02f66c9b898d46dd2a063960b7ae48cb7ab5ff59c83cad5c9f315"
+    },
+    {
+      "path": "src/candidate_canonical_capability_contract/contracts.py",
+      "sha256": "ce8ff9a3cb791fcd5a0ee480417f2730446cd2b28d6cf8fcf4d374efd16a98ac"
+    },
+    {
+      "path": "src/candidate_canonical_capability_contract/catalog.py",
+      "sha256": "3ad3fada5aabfd9c4a8281e335000396ee4c96db6b32da107e47f5481ae09d29"
+    },
+    {
+      "path": "tests/test_candidate_canonical_capability_contract_v0_1.py",
+      "sha256": "065d109c8a424d936e5179a3bb587702f27ee1ba2ad51a20b1f8909e36d0a4a4"
+    },
+    {
+      "path": "tools/audit_candidate_canonical_capability_contract_v0_1_boundary.py",
+      "sha256": "d75b48dc0d0966b6f19b3f201dcf696621a7221ee6fc16b77653f7a8b85a3d77"
+    },
+    {
+      "path": "tools/verify_c0_unified_capability_pool_audit_binding.py",
+      "sha256": "2013ec8146520aeed831dad73f3878afd81c2e1af147c7e18677c05d86c056d3"
+    },
+    {
+      "path": "tools/build_candidate_canonical_capability_contract_v0_1_manifest.py",
+      "sha256": "026d4cd10e4ca3e2545e2c2e587e74623a31cef0b32ff35e1fad1748bc8c81ee"
+    },
+    {
+      "path": "tools/verify_candidate_canonical_capability_contract_v0_1_manifest.py",
+      "sha256": "e1aa58f215ddf41ab4e6417681dfcea26e8b432ccf0c82bc8a399a01efb7ea98"
+    },
+    {
+      "path": "tools/verify_candidate_canonical_capability_contract_v0_1_raw_git_identity.py",
+      "sha256": "7a1383109e5afcf35374c1f79bf91c6fd468251ab904f3fd47b4bee15a2faa6a"
+    },
+    {
+      "path": "tools/review_with_five_body.py",
+      "sha256": "2326448deea56dc93b4f7d4e91000e25fa8d6a4528ddd626e50e5c6a028c60fe"
+    }
+  ],
+  "status": "CANDIDATE_ONLY"
+}

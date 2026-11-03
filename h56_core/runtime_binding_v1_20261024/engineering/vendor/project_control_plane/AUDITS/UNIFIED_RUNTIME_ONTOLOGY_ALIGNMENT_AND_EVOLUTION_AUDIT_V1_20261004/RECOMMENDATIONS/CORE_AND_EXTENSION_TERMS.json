@@ -1,0 +1,31 @@
+{
+  "recommendation_id": "UNIFIED_RUNTIME_ONTOLOGY_CORE_AND_EXTENSION_TERMS_V1",
+  "status": "PROPOSED_FOR_CONTROLLER_PROFILE_REVIEW_ONLY",
+  "canonical_id_convention": {
+    "core": "uro:<Term>",
+    "data_extension": "uro-data:<Term>",
+    "method_extension": "uro-method:<Term>",
+    "trust_extension": "uro-trust:<Term>",
+    "resource_extension": "uro-resource:<Term>",
+    "meaning": "semantic identifier only; not a resolver, authority, registry write or source-code rename"
+  },
+  "core_terms": [
+    "uro:Task",
+    "uro:State",
+    "uro:Candidate",
+    "uro:Capability",
+    "uro:Method",
+    "uro:Observation",
+    "uro:Evidence",
+    "uro:Policy",
+    "uro:Authority",
+    "uro:Session"
+  ],
+  "extension_profiles": {
+    "uro-data": ["DataRequirement", "DataSubmission", "DataReadinessReceipt", "SourceTrustClaim", "SourceTrustAssessment", "DataGapCandidate"],
+    "uro-method": ["EvidenceAtom", "Episode", "Pattern", "MethodSkeleton", "DomainBinding", "FormalOperator", "MethodFragment", "CandidateEvidenceReplay"],
+    "uro-trust": ["SourceAuthorizationScope", "SourceTrustAttestation", "SourceRevocationView", "ExternalTrustVerification"],
+    "uro-resource": ["ResourceBudget"]
+  },
+  "hard_rule": "Extensions are candidate profiles until separately frozen, versioned and compatibility-reviewed; no runtime path may auto-register an extension."
+}

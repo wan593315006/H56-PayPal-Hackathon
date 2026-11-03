@@ -1,0 +1,29 @@
+{
+  "audit_id": "UNIFIED_RUNTIME_ONTOLOGY_ALIGNMENT_AND_EVOLUTION_AUDIT_V1",
+  "chains": [
+    {
+      "id": "CHAIN-V014-PROJECTION",
+      "chain": "frozen profile -> CandidateRuntimeContextProjector -> deterministic CandidateRuntimeContextProjection -> V0.14 contract tests",
+      "status": "REACHABLE_AND_EXECUTED_CANDIDATE_ONLY",
+      "non_inference": "Projection is not a State writer, Authority source, Kernel or execution bridge."
+    },
+    {
+      "id": "CHAIN-DATA-TERMS",
+      "chain": "Task/Method/Capability/Policy declarations -> DataRequirementSpecification -> Submission Manifest matching -> candidate Readiness/Trust receipts",
+      "status": "SOURCE_AND_EXECUTED_CANDIDATE_CONTRACT",
+      "non_inference": "Metadata matching does not prove real source authenticity or permit a data read."
+    },
+    {
+      "id": "CHAIN-METHOD-TERMS",
+      "chain": "EvidenceAtom -> CandidateEpisode -> PatternCandidate -> MethodSkeletonCandidate -> BoundDomainCandidate -> OperatorBindingCandidate -> MethodFragmentCandidate",
+      "status": "SOURCE_BOUND_CANDIDATE_ASSET_CHAIN",
+      "non_inference": "The audit maps semantics only; it adds no runtime import, auto-composition or formal promotion path."
+    },
+    {
+      "id": "CHAIN-LEGACY",
+      "chain": "old Five-Body ontology material -> audit reference only",
+      "status": "CONFLICT_FOR_DIRECT_IMPORT_OR_BRIDGE",
+      "non_inference": "No legacy process, module or ontology is imported, called or mapped at runtime."
+    }
+  ]
+}

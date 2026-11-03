@@ -1,0 +1,13 @@
+{
+  "evidence_strength_order": ["DOCUMENT", "SOURCE", "REACHABLE", "EXECUTED"],
+  "baseline": {"git_commit": "0a44ae5125e366a1de3d3070142992d884e44af1"},
+  "source_sets": [
+    {"id": "V04", "strength": "EXECUTED", "module": "LOCAL_RUNTIME_MVP_V0_4", "artifact_commit": "d6639c23d5cacfffa1e4585f200adeaed2d0740f", "paths": ["clean_core_projects/local_runtime_mvp_v0_4/src/local_runtime_mvp_v4/registry.py", "clean_core_projects/local_runtime_mvp_v0_4/LOCAL_RUNTIME_MVP_V0_4_REQUIREMENT.md"]},
+    {"id": "V05", "strength": "EXECUTED", "module": "LOCAL_RUNTIME_MVP_V0_5", "artifact_commit": "bdc9a9c792737a1c19c84df28e3502c1e7670349", "paths": ["clean_core_projects/local_runtime_mvp_v0_5/src/local_runtime_mvp_v5/references.py", "clean_core_projects/local_runtime_mvp_v0_5/LOCAL_RUNTIME_MVP_V0_5_REQUIREMENT.md"]},
+    {"id": "V014", "strength": "EXECUTED", "module": "CANDIDATE_RUNTIME_CONTEXT_PROJECTION_V0_14", "artifact_commit": "81b69a207920f3e0505c702a47e622f9cd46539e", "paths": ["clean_core_projects/candidate_runtime_context_projection_v0_14/src/candidate_runtime_context_projection/data/CANDIDATE_RUNTIME_ONTOLOGY_PROFILE_V1.json"]},
+    {"id": "DATA_K2", "strength": "EXECUTED", "module": "CANDIDATE_DATA_READINESS_K2_GOVERNANCE_GATE_V0_1", "artifact_commit": "446174c079f62119fb2508380f620118e5682855", "paths": ["clean_core_projects/candidate_data_readiness_k2_governance_gate_v0_1/src/candidate_data_readiness_k2_gate/source_bound.py"]},
+    {"id": "LEGACY_PRESERVATION", "strength": "SOURCE", "module": "LEGACY_RUNTIME_FIELD_CANDIDATE_RECONSTRUCTION_V1", "paths": ["clean_core_projects/legacy_runtime_field_candidate_reconstruction_v1/src/legacy_runtime_field_candidate/preservation.py"]},
+    {"id": "AGENT_ORGANIZATION_SLICE", "strength": "DOCUMENT", "paths": ["../wuti_unified_workbench/release_packages/five_body_task_prerequisites_runtime_slice_v1_20260815/START_HERE_TASK_PREREQUISITES_V1.md"]}
+  ],
+  "rule": "No item is upgraded above its recorded evidence strength; a historical slice cannot prove runtime availability."
+}

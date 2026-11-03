@@ -1,0 +1,26 @@
+{
+  "validation_errors": [],
+  "software_world_model": {
+    "software_objects": [
+      {"name": "CapabilityDefinition"},
+      {"name": "ContractDescriptor"},
+      {"name": "CanonicalCapabilityCatalog"},
+      {"name": "DefinitionHash"},
+      {"name": "CandidateBoundary"}
+    ],
+    "relationships": [
+      {"from": "CapabilityDefinition", "to": "ContractDescriptor", "relation": "binds_input_output_contracts", "via_actions": ["validate_descriptor"]},
+      {"from": "CapabilityDefinition", "to": "DefinitionHash", "relation": "is_content_bound_by", "via_actions": ["recompute_hash"]},
+      {"from": "CanonicalCapabilityCatalog", "to": "CapabilityDefinition", "relation": "contains_unique_definitions", "via_actions": ["verify_catalog"]},
+      {"from": "CandidateBoundary", "to": "CapabilityDefinition", "relation": "limits_semantics_to_definition", "via_actions": ["reject_runtime_fields"]}
+    ],
+    "software_rules": [
+      {"name": "DefinitionHashIntegrity", "source_business_rule": "A declaration must bind all declared fields.", "software_rule": "definition_hash == canonical_hash(definition_body)", "evidence_refs": ["C1_REQUIREMENT:HASH_BINDING"], "affected_objects": ["CapabilityDefinition", "DefinitionHash"]},
+      {"name": "CatalogIdentityUniqueness", "source_business_rule": "A catalog cannot ambiguously identify a Capability.", "software_rule": "capability_id values are unique", "evidence_refs": ["C1_REQUIREMENT:CATALOG"], "affected_objects": ["CanonicalCapabilityCatalog", "CapabilityDefinition"]},
+      {"name": "DefinitionAvailabilitySeparation", "source_business_rule": "Definition cannot be interpreted as current availability.", "software_rule": "availability and execution fields are rejected", "evidence_refs": ["C1_REQUIREMENT:BOUNDARY"], "affected_objects": ["CandidateBoundary", "CapabilityDefinition"]}
+    ],
+    "state_machines": [
+      {"name": "CandidateCapabilityDefinitionLifecycle", "states": ["DECLARED", "HASH_BOUND", "CATALOG_BOUND"], "transitions": [{"from": "DECLARED", "to": "HASH_BOUND"}, {"from": "HASH_BOUND", "to": "CATALOG_BOUND"}]}
+    ]
+  }
+}

@@ -1,0 +1,653 @@
+{
+  "boundary": {
+    "candidate_only": true,
+    "external_side_effect": false,
+    "formal_mlm_write": false,
+    "legacy_source_write": false,
+    "provider_or_mcp_call": false,
+    "runtime_authority": "not_authorized"
+  },
+  "candidate_review": {
+    "architecture_competition": {
+      "demand_pack_id": "BIZ:K0:CANONICAL_FACT_FOUNDATION:V1",
+      "mlm_authority": "no_formal_write",
+      "mother_decision_required": true,
+      "options": [
+        {
+          "architecture_style": "modular_monolith",
+          "assumption_constraints": [
+            "software_world_model_candidate_only",
+            "xiaoji2_does_not_generate_business_code",
+            "requires_clarification:permission_scope",
+            "状态和锁集中实现",
+            "首期部署复杂度低"
+          ],
+          "evidence_refs": [
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text"
+          ],
+          "expected_value_score": 0.82,
+          "name": "软件世界驱动的模块化单体方案",
+          "option_id": "A",
+          "rejected_reason": "当事件传播或跨域扩展压力较高时，模块化单体容易形成后续拆分成本。",
+          "risk_score": 0.27,
+          "simulation_confidence": 0.8
+        },
+        {
+          "architecture_style": "service_oriented",
+          "assumption_constraints": [
+            "software_world_model_candidate_only",
+            "xiaoji2_does_not_generate_business_code",
+            "requires_clarification:permission_scope",
+            "服务边界可稳定识别",
+            "团队具备运维能力"
+          ],
+          "evidence_refs": [
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text"
+          ],
+          "expected_value_score": 0.736,
+          "name": "软件世界驱动的微服务方案",
+          "option_id": "B",
+          "rejected_reason": "当数据一致性和团队运维能力不足时，微服务复杂度可能高于收益。",
+          "risk_score": 0.343,
+          "simulation_confidence": 0.76
+        },
+        {
+          "architecture_style": "event_driven",
+          "assumption_constraints": [
+            "software_world_model_candidate_only",
+            "xiaoji2_does_not_generate_business_code",
+            "requires_clarification:permission_scope",
+            "事件可追踪",
+            "补偿和幂等规则必须明确"
+          ],
+          "evidence_refs": [
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text",
+            "xiaoji3_raw_requirement_text"
+          ],
+          "expected_value_score": 0.68,
+          "name": "软件世界驱动的事件驱动方案",
+          "option_id": "C",
+          "rejected_reason": "当核心流程不需要异步传播时，事件驱动会增加理解和调试成本。",
+          "risk_score": 0.367,
+          "simulation_confidence": 0.78
+        }
+      ],
+      "pack_id": "ARCH_COMPETITION_FOR_SW:K0:CANONICAL_FACT_FOUNDATION:V1",
+      "runtime_authority": "not_authorized",
+      "source_role": "小机2号"
+    },
+    "compilation_id": "SOFTWARE_WORLD_COMPILATION_SW:K0:CANONICAL_FACT_FOUNDATION:V1",
+    "mlm_authority": "no_formal_write",
+    "runtime_authority": "not_authorized",
+    "santi_runtime_dependency": false,
+    "software_world_model": {
+      "architecture_drivers": [
+        {
+          "driver": "state_complexity",
+          "reason": "number of explicit business states",
+          "score": 0.5
+        },
+        {
+          "driver": "data_consistency",
+          "reason": "scarce resource or transaction consistency",
+          "score": 0.167
+        },
+        {
+          "driver": "event_propagation",
+          "reason": "downstream event propagation",
+          "score": 0.0
+        },
+        {
+          "driver": "permission_complexity",
+          "reason": "role or field scope pressure",
+          "score": 0.6
+        },
+        {
+          "driver": "extension_pressure",
+          "reason": "future capability expansion",
+          "score": 0.0
+        },
+        {
+          "driver": "concurrency_locking",
+          "reason": "concurrent resource contention",
+          "score": 0.2
+        }
+      ],
+      "assumption_constraints": [
+        "software_world_model_candidate_only",
+        "xiaoji2_does_not_generate_business_code",
+        "requires_clarification:permission_scope"
+      ],
+      "business_semantic_model_id": "BIZ:K0:CANONICAL_FACT_FOUNDATION:V1",
+      "evidence_refs": [
+        {
+          "mapped_to": [
+            "管理员"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "管理员和审核员共同维护一个项目的事实记录"
+        },
+        {
+          "mapped_to": [
+            "操作员"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "操作员只能提交候选事实，审核员"
+        },
+        {
+          "mapped_to": [
+            "审核员"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "管理员和审核员共同维护一个项目的事实记录"
+        },
+        {
+          "mapped_to": [
+            "项目"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "管理员和审核员共同维护一个项目的事实记录"
+        },
+        {
+          "mapped_to": [
+            "权限"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "权限、并发、来源和证据不足时，系统只"
+        },
+        {
+          "mapped_to": [
+            "记录"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "管理员和审核员共同维护一个项目的事实记录"
+        },
+        {
+          "mapped_to": [
+            "修改"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "任何修改"
+        },
+        {
+          "mapped_to": [
+            "审核"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "管理员和审核员共同维护一个项目的事实记录"
+        },
+        {
+          "mapped_to": [
+            "查询"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "过期历史的提交，要求重新查询后再提交"
+        },
+        {
+          "mapped_to": [
+            "提交"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "操作员只能提交候选事实，审核员"
+        },
+        {
+          "mapped_to": [
+            "验证"
+          ],
+          "source_ref": "xiaoji3_raw_requirement_text",
+          "source_text": "验证候选事实的来源、对象版本和证据后，才允许把它追加为已记录事实"
+        }
+      ],
+      "lifecycle_models": [
+        {
+          "evidence_refs": [
+            "管理员和审核员共同维护一个项目的事实记录"
+          ],
+          "object": "Admin",
+          "states": [
+            "Active",
+            "Suspended"
+          ]
+        },
+        {
+          "evidence_refs": [
+            "管理员和审核员共同维护一个项目的事实记录"
+          ],
+          "object": "Project",
+          "states": [
+            "Draft",
+            "Active",
+            "Archived"
+          ]
+        },
+        {
+          "evidence_refs": [
+            "权限、并发、来源和证据不足时，系统只"
+          ],
+          "object": "Permission",
+          "states": [
+            "Draft",
+            "Active",
+            "Archived"
+          ]
+        },
+        {
+          "evidence_refs": [
+            "管理员和审核员共同维护一个项目的事实记录"
+          ],
+          "object": "Record",
+          "states": [
+            "Draft",
+            "Active",
+            "Archived"
+          ]
+        }
+      ],
+      "mlm_authority": "no_formal_write",
+      "model_id": "SW:K0:CANONICAL_FACT_FOUNDATION:V1",
+      "mother_decision_required": true,
+      "relationships": [
+        {
+          "from": "Admin",
+          "relation": "uses_or_operates",
+          "to": "Project",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询",
+            "提交",
+            "验证"
+          ]
+        },
+        {
+          "from": "Admin",
+          "relation": "uses_or_operates",
+          "to": "Permission",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询",
+            "提交",
+            "验证"
+          ]
+        },
+        {
+          "from": "Admin",
+          "relation": "uses_or_operates",
+          "to": "Record",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询",
+            "提交",
+            "验证"
+          ]
+        },
+        {
+          "from": "",
+          "relation": "uses_or_operates",
+          "to": "Project",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询",
+            "提交",
+            "验证"
+          ]
+        },
+        {
+          "from": "",
+          "relation": "uses_or_operates",
+          "to": "Permission",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询",
+            "提交",
+            "验证"
+          ]
+        },
+        {
+          "from": "",
+          "relation": "uses_or_operates",
+          "to": "Record",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询",
+            "提交",
+            "验证"
+          ]
+        },
+        {
+          "from": "",
+          "relation": "uses_or_operates",
+          "to": "Project",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询",
+            "提交",
+            "验证"
+          ]
+        },
+        {
+          "from": "",
+          "relation": "uses_or_operates",
+          "to": "Permission",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询",
+            "提交",
+            "验证"
+          ]
+        },
+        {
+          "from": "",
+          "relation": "uses_or_operates",
+          "to": "Record",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询",
+            "提交",
+            "验证"
+          ]
+        },
+        {
+          "from": "Project",
+          "relation": "domain_association",
+          "to": "Permission",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询"
+          ]
+        },
+        {
+          "from": "Permission",
+          "relation": "domain_association",
+          "to": "Record",
+          "via_actions": [
+            "修改",
+            "审核",
+            "查询"
+          ]
+        }
+      ],
+      "risk_propagation_paths": [
+        {
+          "control": "idempotency_key_plus_atomic_lock_plus_timeout_release",
+          "event": "scarce_resource_contention",
+          "path": [
+            "Resource",
+            "ResourceLock",
+            "BusinessTransaction",
+            "TimeoutRelease",
+            "Audit"
+          ]
+        },
+        {
+          "control": "default_deny_plus_field_scope_audit",
+          "event": "permission_scope_error",
+          "path": [
+            "Role",
+            "PermissionPolicy",
+            "API",
+            "SensitiveObject",
+            "AuditLog"
+          ]
+        }
+      ],
+      "runtime_authority": "not_authorized",
+      "simulation_questions": [
+        {
+          "evidence_refs": [
+            "权限、并发、来源和证据不足时，系统只"
+          ],
+          "question_id": "SIM_Q_permission_scope",
+          "requires_decision": [
+            "角色边界",
+            "字段范围",
+            "授权凭证",
+            "审计保留"
+          ],
+          "source_ambiguity_score": 0.61,
+          "source_ambiguity_target": "permission_scope"
+        }
+      ],
+      "software_objects": [
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "display_name",
+            "contact",
+            "role",
+            "permission_scope",
+            "status"
+          ],
+          "evidence_refs": [
+            "管理员和审核员共同维护一个项目的事实记录"
+          ],
+          "kind": "actor_object",
+          "lifecycle": [
+            "Active",
+            "Suspended"
+          ],
+          "name": "Admin",
+          "relationships": []
+        },
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "status",
+            "project_id",
+            "owner_id",
+            "priority",
+            "due_at",
+            "progress"
+          ],
+          "evidence_refs": [
+            "管理员和审核员共同维护一个项目的事实记录"
+          ],
+          "kind": "domain_object",
+          "lifecycle": [
+            "Draft",
+            "Active",
+            "Archived"
+          ],
+          "name": "Project",
+          "relationships": []
+        },
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "status"
+          ],
+          "evidence_refs": [
+            "权限、并发、来源和证据不足时，系统只"
+          ],
+          "kind": "domain_object",
+          "lifecycle": [
+            "Draft",
+            "Active",
+            "Archived"
+          ],
+          "name": "Permission",
+          "relationships": []
+        },
+        {
+          "attributes": [
+            "id",
+            "created_at",
+            "updated_at",
+            "status"
+          ],
+          "evidence_refs": [
+            "管理员和审核员共同维护一个项目的事实记录"
+          ],
+          "kind": "domain_object",
+          "lifecycle": [
+            "Draft",
+            "Active",
+            "Archived"
+          ],
+          "name": "Record",
+          "relationships": []
+        }
+      ],
+      "software_rules": [
+        {
+          "affected_objects": [],
+          "evidence_refs": [
+            "管理员和审核员共同维护一个项目的事实记录"
+          ],
+          "name": "Rule_管理员和审核员共同维护一个项目的事实记录",
+          "software_rule": "if request.is_special: require_admin_review",
+          "source_business_rule": "管理员和审核员共同维护一个项目的事实记录"
+        },
+        {
+          "affected_objects": [],
+          "evidence_refs": [
+            "操作员只能提交候选事实，审核员"
+          ],
+          "name": "Rule_操作员只能提交候选事实_审核员",
+          "software_rule": "if not permission_scope.allows(action, object): deny_and_audit",
+          "source_business_rule": "操作员只能提交候选事实，审核员"
+        },
+        {
+          "affected_objects": [],
+          "evidence_refs": [
+            "管理员必须审核并验证每一次候选提交"
+          ],
+          "name": "Rule_管理员必须审核并验证每一次候选提交",
+          "software_rule": "if request.is_special: require_admin_review",
+          "source_business_rule": "管理员必须审核并验证每一次候选提交"
+        },
+        {
+          "affected_objects": [],
+          "evidence_refs": [
+            "不同操作员同时提交时，系统必须拒绝基于"
+          ],
+          "name": "Rule_不同操作员同时提交时_系统必须拒绝基于",
+          "software_rule": "enforce_as_domain_policy_with_audit",
+          "source_business_rule": "不同操作员同时提交时，系统必须拒绝基于"
+        },
+        {
+          "affected_objects": [],
+          "evidence_refs": [
+            "权限、并发、来源和证据不足时，系统只"
+          ],
+          "name": "Rule_权限_并发_来源和证据不足时_系统只",
+          "software_rule": "if not permission_scope.allows(action, object): deny_and_audit",
+          "source_business_rule": "权限、并发、来源和证据不足时，系统只"
+        },
+        {
+          "affected_objects": [],
+          "evidence_refs": [
+            "权限、并发、来源和证据不足时，系统只"
+          ],
+          "name": "Rule_权限_并发_来源和证据不足时_系统只",
+          "software_rule": "if not permission_scope.allows(action, object): deny_and_audit",
+          "source_business_rule": "权限、并发、来源和证据不足时，系统只"
+        }
+      ],
+      "source_role": "小机2号",
+      "state_machines": [
+        {
+          "evidence_refs": [
+            "状态流：候选记录 → 已记录 → 已更正 / 已失效"
+          ],
+          "exception_paths": [
+            {
+              "event": "cancel",
+              "from": "状态流：候选记录",
+              "to": "Cancelled"
+            }
+          ],
+          "name": "WorkflowStateMachine",
+          "states": [
+            "状态流：候选记录",
+            "已记录",
+            "已更正 / 已失效"
+          ],
+          "transitions": [
+            {
+              "event": "状态流：候选记录_to_已记录",
+              "from": "状态流：候选记录",
+              "guard": "business_condition_satisfied",
+              "to": "已记录"
+            },
+            {
+              "event": "已记录_to_已更正 / 已失效",
+              "from": "已记录",
+              "guard": "business_condition_satisfied",
+              "to": "已更正 / 已失效"
+            }
+          ]
+        },
+        {
+          "evidence_refs": [
+            "能记录拒绝决定，不能修改项目状态"
+          ],
+          "exception_paths": [
+            {
+              "event": "cancel",
+              "from": "能记录拒绝决定，不能修改项目状态",
+              "to": "Cancelled"
+            }
+          ],
+          "name": "WorkflowStateMachine",
+          "states": [
+            "能记录拒绝决定，不能修改项目状态"
+          ],
+          "transitions": []
+        }
+      ]
+    },
+    "source_role": "小机2号",
+    "validation_errors": []
+  },
+  "review_id": "FIVE_BODY_CANDIDATE_REVIEW:K0:V1",
+  "source_bound_inputs": {
+    "business_semantic_compiler_sha256": "e8a37bb5d589103642afedcad9aedf9634cf2e137ccfc3911e5d7d6444cad453",
+    "k0_requirement_sha256": "c7dc490fae0708a5b63f8299ea2b053c8015ecbbe5af16d6818bf29c86e0c75d",
+    "software_world_model_compiler_sha256": "00a3773210bbb6098afb93c96f49dbf0229aef4aca88ab4ca5dc6f38358ccdb3"
+  }
+}

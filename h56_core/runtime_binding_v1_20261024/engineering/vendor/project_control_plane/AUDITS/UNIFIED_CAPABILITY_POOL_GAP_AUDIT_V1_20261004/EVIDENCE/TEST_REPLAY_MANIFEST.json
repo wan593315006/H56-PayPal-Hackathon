@@ -1,0 +1,9 @@
+{
+  "replay_scope": "existing_candidate_capability_definition_evidence_only",
+  "required": [
+    {"module": "LOCAL_RUNTIME_MVP_V0_4", "expected_python_3_9": "18 passed", "expected_python_3_13": "18 passed"},
+    {"module": "LOCAL_RUNTIME_MVP_V0_5", "expected_python_3_9": "15 passed", "expected_python_3_13": "15 passed"},
+    {"module": "CANDIDATE_RUNTIME_CONTEXT_PROJECTION_V0_14", "expected_python_3_9": "13 passed", "expected_python_3_13": "13 passed"}
+  ],
+  "non_claims": ["generic capability availability", "live tool availability", "multi-agent coordination", "authority", "commit", "execution"]
+}

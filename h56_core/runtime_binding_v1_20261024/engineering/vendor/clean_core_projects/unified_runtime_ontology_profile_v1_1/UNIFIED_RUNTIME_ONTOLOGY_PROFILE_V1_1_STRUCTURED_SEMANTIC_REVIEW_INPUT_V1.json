@@ -1,0 +1,28 @@
+{
+  "validation_errors": [],
+  "software_world_model": {
+    "software_objects": [
+      {"name": "RuntimeOntologyProfile"},
+      {"name": "ExtensionProfile"},
+      {"name": "RelationDefinition"},
+      {"name": "ReadOnlyOntologyDescriptor"},
+      {"name": "CandidateBoundary"}
+    ],
+    "relationships": [
+      {"from": "RuntimeOntologyProfile", "to": "ExtensionProfile", "relation": "declares_versioned_extensions", "via_actions": ["validate_extension_profile"]},
+      {"from": "RuntimeOntologyProfile", "to": "RelationDefinition", "relation": "declares_directed_semantics", "via_actions": ["validate_relation_definition"]},
+      {"from": "RuntimeOntologyProfile", "to": "ReadOnlyOntologyDescriptor", "relation": "describes_without_resolution", "via_actions": ["construct_content_bound_descriptor"]},
+      {"from": "CandidateBoundary", "to": "RuntimeOntologyProfile", "relation": "limits_profile_to_read_only_candidate_semantics", "via_actions": ["reject_registry_state_authority_and_execution_fields"]},
+      {"from": "CandidateBoundary", "to": "ReadOnlyOntologyDescriptor", "relation": "forbids_instance_state_or_execution_inference", "via_actions": ["reject_unknown_descriptor_fields"]}
+    ],
+    "software_rules": [
+      {"name": "ProfileContentIdentity", "source_business_rule": "The profile must be deterministic and content-bound.", "software_rule": "profile_hash == canonical_hash(profile_body)", "evidence_refs": ["URO_V1_1_REQUIREMENT:REQUIRED_SEMANTICS"], "affected_objects": ["RuntimeOntologyProfile"]},
+      {"name": "KnownSemanticVocabularyOnly", "source_business_rule": "Unknown object types, extension namespaces and relation endpoints cannot silently change meaning.", "software_rule": "all identifiers belong to the frozen core or declared extension profile", "evidence_refs": ["URO_V1_1_REQUIREMENT:HARD_EXCLUSIONS"], "affected_objects": ["RuntimeOntologyProfile", "ExtensionProfile", "RelationDefinition"]},
+      {"name": "ReadOnlyDescriptorBoundary", "source_business_rule": "An ontology descriptor must not be mistaken for an object resolver, State, Authority or execution permission.", "software_rule": "descriptor accepts semantic/source/context hashes only and rejects state authority commit execution and registry fields", "evidence_refs": ["URO_V1_1_REQUIREMENT:RESULT"], "affected_objects": ["ReadOnlyOntologyDescriptor", "CandidateBoundary"]},
+      {"name": "CompatibilityNeverMigrates", "source_business_rule": "A compatibility result must not cause object migration or write a registry.", "software_rule": "compare_profiles returns only a declared outcome", "evidence_refs": ["URO_V1_1_REQUIREMENT:HARD_EXCLUSIONS"], "affected_objects": ["RuntimeOntologyProfile", "CandidateBoundary"]}
+    ],
+    "state_machines": [
+      {"name": "CandidateOntologyProfileLifecycle", "states": ["DECLARED", "HASH_BOUND", "READ_ONLY_VALIDATED"], "transitions": [{"from": "DECLARED", "to": "HASH_BOUND"}, {"from": "HASH_BOUND", "to": "READ_ONLY_VALIDATED"}]}
+    ]
+  }
+}

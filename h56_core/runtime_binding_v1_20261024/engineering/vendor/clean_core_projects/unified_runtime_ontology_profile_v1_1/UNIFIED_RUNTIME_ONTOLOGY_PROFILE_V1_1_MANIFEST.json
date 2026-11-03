@@ -1,0 +1,40 @@
+{
+  "project_id": "UNIFIED_RUNTIME_ONTOLOGY_PROFILE_V1_1",
+  "status": "CANDIDATE_READ_ONLY_PROFILE_ONLY",
+  "preconstruction_baseline": {
+    "git_commit": "2863e63dba8007cfa415726d4d8272bb1db78e73",
+    "git_tree": "723108a15f652cd82ccb1e215af68540082e6c4e"
+  },
+  "predecessor_audit_binding": {
+    "audit_id": "UNIFIED_RUNTIME_ONTOLOGY_ALIGNMENT_AND_EVOLUTION_AUDIT_V1_20261004",
+    "audit_manifest_sha256": "485f260a4eb314e5470aad57806b5418a1e786b65f8825ccbf20b8125fa92bc4"
+  },
+  "candidate_result": {
+    "output": "RUNTIME_ONTOLOGY_PROFILE_OR_READ_ONLY_DESCRIPTOR_ONLY",
+    "runtime_registry": "NOT_IMPLEMENTED",
+    "state_history_runtime_or_formal_mlm_write": "FORBIDDEN",
+    "authority_commit_policy_execution": "NOT_IMPLEMENTED",
+    "legacy_import_or_call": "FORBIDDEN",
+    "external_effect_surface": "FORBIDDEN"
+  },
+  "migration_payload_requirement": "REQUIRED_IN_LATEST_CANDIDATE_COLD_START",
+  "managed_files": [
+    {"path": ".gitignore", "sha256": "882b1e62ba9093d6065e5fa32b50b728e10c4052bc20080a56be07b6c64669e1"},
+    {"path": "README.md", "sha256": "cea6aeb48fdcba2e21938d816a75749b906968dec0ac90122aa3755ce8e526e0"},
+    {"path": "UNIFIED_RUNTIME_ONTOLOGY_PROFILE_V1_1_REQUIREMENT.md", "sha256": "36cc39ac98b1fed16602e65fd19ba8234b144b3de343eb75cad9d2ef799d9dbc"},
+    {"path": "pyproject.toml", "sha256": "6a281056bde9fafaf673a5621aca880dd3164ba2c63b7c5d4a61070fe2d0ed7a"},
+    {"path": "UNIFIED_RUNTIME_ONTOLOGY_PROFILE_V1_1_STRUCTURED_SEMANTIC_REVIEW_INPUT_V1.json", "sha256": "21d0bc9b4d1606d783d50b0153dde32f7fbc4a60b296d13485a3b77eee8e4e6c"},
+    {"path": "src/unified_runtime_ontology_profile/__init__.py", "sha256": "56f9003ef5c9c82bd6186da3249615654b47191c41010c1bf774b13dddbe06f3"},
+    {"path": "src/unified_runtime_ontology_profile/contracts.py", "sha256": "a22b91374a8ac308f475f5b3eef45b038644337fc547452112251138b1d72ddd"},
+    {"path": "src/unified_runtime_ontology_profile/profile.py", "sha256": "224a92da484933dd03a8085338036a9207782262127030f5299899c50c8170bf"},
+    {"path": "src/unified_runtime_ontology_profile/data/__init__.py", "sha256": "19cd2bca84eeb218aa44f930898b08e61756143d11c2f7a33a0dcae3f2f2b1a1"},
+    {"path": "src/unified_runtime_ontology_profile/data/UNIFIED_RUNTIME_ONTOLOGY_PROFILE_V1_1.json", "sha256": "997ce3dcc07bde21365d35eb6d6a5c7d7454f6b4944d06f5a6e5aceedf399f6b"},
+    {"path": "tests/test_unified_runtime_ontology_profile_v1_1.py", "sha256": "25bb5f80d35f74512e6429f30b657bf67742b8920744089495b4bf7e99c1c14e"},
+    {"path": "tools/audit_unified_runtime_ontology_profile_v1_1_boundary.py", "sha256": "87998a9482f795868d5f4adddc33637902e9f6e994f198fcb5f37d7cea849ed7"},
+    {"path": "tools/verify_ontology_alignment_audit_binding.py", "sha256": "10ca37df016f8b909bd93120c576ad6a5df2c4c1036f276133b9ceabcab718d9"},
+    {"path": "tools/review_with_five_body.py", "sha256": "ca4d589dade7f13d7d3b78aedf87997cd78da0013bffd5fa9df5e67bf7364198"},
+    {"path": "tools/verify_unified_runtime_ontology_profile_v1_1_manifest.py", "sha256": "b4d8a3d5346b504ba24361debcf3d2ebab4a6439887116dcf3284ad3500d73fd"},
+    {"path": "tools/verify_unified_runtime_ontology_profile_v1_1_raw_git_identity.py", "sha256": "7e15eb70a47919ed611d749e9fce78c2efa8244a6a4944b96eac58be32f602ca"}
+  ],
+  "integrity_scope": "Managed source, test and verification files only. This manifest excludes itself and carries no Runtime registry or migration payload."
+}

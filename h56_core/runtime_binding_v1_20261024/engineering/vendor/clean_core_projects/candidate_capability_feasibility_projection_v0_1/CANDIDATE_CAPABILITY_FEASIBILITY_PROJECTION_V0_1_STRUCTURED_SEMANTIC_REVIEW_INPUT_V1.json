@@ -1,0 +1,26 @@
+{
+  "validation_errors": [],
+  "software_world_model": {
+    "software_objects": [
+      {"name": "CapabilityCatalogReference"},
+      {"name": "AvailabilityAssertion"},
+      {"name": "FeasibilityContext"},
+      {"name": "FeasibilityProjection"},
+      {"name": "CandidatePlanningBoundary"}
+    ],
+    "relationships": [
+      {"from": "CapabilityCatalogReference", "to": "AvailabilityAssertion", "relation": "binds_definition_identity", "via_actions": ["validate_definition_hash"]},
+      {"from": "AvailabilityAssertion", "to": "FeasibilityContext", "relation": "evaluates_against_declared_context", "via_actions": ["project_feasibility"]},
+      {"from": "FeasibilityContext", "to": "FeasibilityProjection", "relation": "produces_traceable_decision", "via_actions": ["hash_projection"]},
+      {"from": "CandidatePlanningBoundary", "to": "FeasibilityProjection", "relation": "prevents_operational_rights", "via_actions": ["force_candidate_only"]}
+    ],
+    "software_rules": [
+      {"name": "DefinitionAvailabilitySeparation", "source_business_rule": "A declared capability does not prove present use.", "software_rule": "definition identity must bind before feasibility is projected", "evidence_refs": ["C2_REQUIREMENT:SEPARATION"], "affected_objects": ["CapabilityCatalogReference", "AvailabilityAssertion"]},
+      {"name": "EvidenceGapDeferral", "source_business_rule": "Insufficient evidence cannot be treated as feasibility.", "software_rule": "insufficient evidence yields NEED_MORE_EVIDENCE", "evidence_refs": ["C2_REQUIREMENT:EVIDENCE"], "affected_objects": ["FeasibilityContext", "FeasibilityProjection"]},
+      {"name": "CandidatePlanningOnly", "source_business_rule": "Feasibility cannot grant operational rights.", "software_rule": "candidate_planning_only=true and rights=false", "evidence_refs": ["C2_REQUIREMENT:BOUNDARY"], "affected_objects": ["CandidatePlanningBoundary", "FeasibilityProjection"]}
+    ],
+    "state_machines": [
+      {"name": "CandidateCapabilityDecisionLifecycle", "states": ["DECLARED", "EVALUATED", "FEASIBLE"], "transitions": [{"from": "DECLARED", "to": "EVALUATED"}, {"from": "EVALUATED", "to": "FEASIBLE"}]}
+    ]
+  }
+}

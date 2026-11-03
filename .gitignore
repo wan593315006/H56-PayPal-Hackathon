@@ -1,0 +1,18 @@
+# Credentials: never committed. Only the key names are public, in .env.example.
+.env
+.env.*
+!.env.example
+
+# Python byte caches. h56_core must contain none of these at any time:
+# the vendored tree is checked as an exact file set, so a stray __pycache__
+# breaks the native import, not just the tidiness.
+__pycache__/
+*.pyc
+
+# Runtime output, created by the application on demand.
+runs/
+records/
+
+# Logs and scratch files.
+*.log
+*.tmp

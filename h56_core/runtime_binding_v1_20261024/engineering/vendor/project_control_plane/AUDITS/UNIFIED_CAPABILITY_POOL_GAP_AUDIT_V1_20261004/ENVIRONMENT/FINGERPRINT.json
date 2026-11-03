@@ -1,0 +1,6 @@
+{
+  "fingerprint_kind": "SOFTWARE_TEST_ENVIRONMENT_ONLY",
+  "python_3_9": "CPython 3.9.13 Windows AMD64",
+  "python_3_13": "CPython 3.13.12 Windows AMD64",
+  "excluded": ["MAC", "IP", "hostname", "device_serial", "user_identity", "credentials", "private_key"]
+}
