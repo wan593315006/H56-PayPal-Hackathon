@@ -620,6 +620,12 @@ def sandbox_parser(sub):
     parser.add_argument("--cancel-url", default="https://example.com/h56/sandbox/cancel")
     parser.add_argument("--order-id", default=None,
                         help="the PayPal order id (needed by status and capture)")
+    parser.add_argument("--intent-stamp", default=None,
+                        help="stamp of the run directory holding this payment operation "
+                             "(defaults to --stamp). Set it to the ORIGINAL stamp when a "
+                             "re-evaluation under a new stamp continues an order that "
+                             "already exists, so the operation keeps its identity and its "
+                             "idempotency key instead of becoming a second order.")
     parser.add_argument("--stamp", default=None,
                         help="same stamp for evaluate, create and capture; defaults to now")
     parser.add_argument("--business", default="shop")
@@ -657,6 +663,39 @@ def _write_intent(directory, intent):
     path.parent.mkdir(exist_ok=True)
     path.write_bytes(hostproof.dumps(intent).encode("utf-8"))
     return path
+
+
+def _intent_matches(intent, order, payee_ref, operation_id):
+    """The saved intent is what this operation is; a disagreement is a refusal.
+
+    The auditor measured the opposite: after a simulated timeout left the intent at
+    PENDING_SEND, a retry under the same run sent a new request under a recomputed key
+    with a new payee, while the intent file still held the old key and the old payee
+    digest. The intent is persisted precisely so the retry obeys it: the saved key is
+    reused as it stands, and the current parameters must agree with what was saved --
+    offer, amount, currency, payee, operation identity -- before anything is sent.
+    Silently re-aiming a payment at a different payee inside one operation is not a
+    retry, it is a second payment wearing the first one's name.
+    """
+    from . import sandbox
+    if not isinstance(intent, dict):
+        raise sandbox.SandboxError(sandbox.RUN_STATE_UNKNOWN, "intent is not a mapping")
+    differing = [name for name, mine, saved in (
+        ("offer_id", order["offer_id"], intent.get("offer_id")),
+        ("amount_minor", order["amount_minor"], intent.get("amount_minor")),
+        ("currency", order["currency"], intent.get("currency")),
+        ("payee_ref", payee_ref, intent.get("payee_ref")),
+        ("operation_id", operation_id, intent.get("operation_id")),
+    ) if saved != mine]
+    if not intent.get("confirmed_at"):
+        differing.append("confirmed_at")
+    if not intent.get("create_key"):
+        differing.append("create_key")
+    if differing:
+        raise sandbox.SandboxError(
+            sandbox.INTENT_MISMATCH,
+            "%s: saved intent disagrees with the current parameters" % ",".join(differing))
+    return True
 
 
 def _h56_gate(stamp, business, order, catalogue, directory=None, records_root=None):
@@ -734,15 +773,13 @@ def _h56_gate(stamp, business, order, catalogue, directory=None, records_root=No
             sandbox.H56_DECISION_NOT_FEASIBLE, str(decision))
 
     as_of = request.get("as_of")
-    try:
-        moment = datetime.datetime.strptime(as_of, "%Y-%m-%dT%H:%M:%SZ")
-    except (TypeError, ValueError):
-        raise sandbox.SandboxError(
-            sandbox.H56_RECORD_MISSING, "request has no usable as_of") from None
-    age = int((datetime.datetime.utcnow() - moment).total_seconds())
-    if age > sandbox.MAX_EVALUATION_AGE_SECONDS:
-        raise sandbox.SandboxError(
-            sandbox.H56_EVALUATION_STALE, "as_of=%s age=%ds" % (as_of, age))
+    # The freshness contract, restored: 300 seconds, and the future refused outright.
+    # The auditor measured both holes -- a 602-second-old evaluation accepted, and an
+    # evaluation dated an hour ahead accepted too, because the only bound was a day and
+    # it was one-sided. The binding cannot catch these: the envelope's observed_at is
+    # derived from as_of itself, so a request pointed at the past or the future is
+    # perfectly self-consistent and only the wall clock can disagree with it.
+    age = sandbox.check_evaluation_freshness(as_of)
 
     return {"assessment_id": result.get("assessment_id"), "decision": decision,
             "as_of": as_of, "evaluation_age_seconds": age,
@@ -820,50 +857,39 @@ def sandbox_command(arguments):
             # the binding consulted zero times. Policy, verdict and binding are local
             # facts; they are settled before the credentials are even read.
             gate = _h56_gate(stamp, arguments.business, order, catalogue)
-            client.token()
+            intent_stamp = arguments.intent_stamp or stamp
             payee_ref = sandbox.payee_ref(arguments.payee_email)
-            create_key = sandbox.create_key(sandbox.create_seed(order, arguments.payee_email))
-            # Reuse or create the run state, and never guess which. A directory without
-            # an intent belongs to the evaluation that made it, and gains one now. A
-            # directory whose intent already carries an order id is a create that may
-            # have completed before its process died: reconciliation asks PayPal rather
-            # than creating again, because with the idempotency key the second create
-            # would be safe but the question "what did the first one do" would stay open.
-            try:
-                directory = settings.existing_run_directory(stamp, arguments.business)
-            except settings.RunPathError:
-                directory = settings.run_directory(stamp, arguments.business)
-                intent = None
+            if intent_stamp == stamp:
+                try:
+                    directory = settings.existing_run_directory(stamp, arguments.business)
+                except settings.RunPathError:
+                    directory = settings.run_directory(stamp, arguments.business)
+                    intent = None
+                else:
+                    intent = _read_intent(directory)
             else:
+                # A re-evaluation under a new stamp continues an operation that lives in
+                # another run directory. The operation keeps its identity, its intent and
+                # its idempotency key; only the evaluation is fresh. Nothing here creates
+                # a second order for a purchase that already has one.
+                directory = settings.existing_run_directory(intent_stamp, arguments.business)
                 intent = _read_intent(directory)
-            if intent is not None and intent.get("order_id"):
-                view = client.read_order(intent["order_id"])
-                sandbox.verify_order(view, intent["order_id"], order, payee_ref)
-                document = {
-                    "schema": sandbox.SCHEMA, "step": "reconcile",
-                    "stamp": stamp, "business": arguments.business,
-                    "create_key": intent["create_key"], "order_id": intent["order_id"],
-                    "response": view,
-                    "h56": {"assessment_id": gate["assessment_id"],
-                            "decision": gate["decision"]},
-                }
-                path = _sandbox_write(directory, "04_reconcile.json", document)
-                print("SANDBOX_RECONCILED=True")
-                print("SANDBOX_ORDER_ID=%s" % view["order_id"])
-                print("SANDBOX_PAYPAL_STATUS=%s" % view["status"])
-                print("SANDBOX_CREATE_KEY=%s" % intent["create_key"])
-                print("SANDBOX_TRANSPORT_CALLS=%d" % len(transport.calls))
-                print("SANDBOX_EVIDENCE=%s" % path)
-                print("SANDBOX_EXIT=0")
-                return EXIT_OK
-            if intent is None:
-                # The intent is on disk before the send: key, amount, payee reference and
-                # state. A timeout or a crash after this point leaves enough behind to
-                # name the operation, reuse its key, and ask what happened -- which is
-                # the whole difference between a retry and a second order.
+            operation_id = "%s_%s" % (intent_stamp, arguments.business)
+            if intent is not None:
+                # The saved intent governs the retry, the auditor measured what happens
+                # when it does not: after a simulated timeout the retry recomputed a new
+                # key with a new payee while the file still held the old ones. The saved
+                # key is reused as it stands, and the current parameters must agree with
+                # the saved operation before anything is sent.
+                _intent_matches(intent, order, payee_ref, operation_id)
+                create_key = intent["create_key"]
+            else:
+                create_key = sandbox.create_key(
+                    sandbox.create_seed(order, arguments.payee_email, operation_id))
                 intent = {
                     "schema": sandbox.SCHEMA, "step": "create", "state": "PENDING_SEND",
-                    "create_key": create_key,
+                    "create_key": create_key, "operation_id": operation_id,
+                    "confirmed_at": gate["as_of"],
                     "offer_id": order["offer_id"], "amount_minor": order["amount_minor"],
                     "currency": order["currency"], "payee_ref": payee_ref,
                     "request": sandbox.redact(sandbox.create_body(
@@ -871,7 +897,40 @@ def sandbox_command(arguments):
                         arguments.cancel_url)),
                     "assessment_id": gate["assessment_id"], "h56_decision": gate["decision"],
                 }
+                # The intent is on disk before the send: key, operation, amount, payee
+                # reference, proposal confirmation and state. A timeout or a crash after
+                # this point leaves enough behind to name the operation, reuse its key,
+                # and ask what happened -- which is the whole difference between a retry
+                # and a second order.
                 _write_intent(directory, intent)
+            # The business proposal this evaluation confirmed holds for 900 seconds. A
+            # re-evaluation may carry the operation forward inside that window; past it
+            # the proposal must be confirmed again, and nothing is sent on the old one's
+            # momentum.
+            sandbox.check_proposal_window(intent["confirmed_at"])
+            client.token()
+            if intent.get("order_id"):
+                view = client.read_order(intent["order_id"])
+                sandbox.verify_order(view, intent["order_id"], order, payee_ref)
+                document = {
+                    "schema": sandbox.SCHEMA, "step": "reconcile",
+                    "stamp": stamp, "operation": operation_id,
+                    "business": arguments.business,
+                    "create_key": intent["create_key"], "order_id": intent["order_id"],
+                    "response": view,
+                    "h56": {"assessment_id": gate["assessment_id"],
+                            "decision": gate["decision"]},
+                }
+                path = _sandbox_write(directory, "04_reconcile.json", document)
+                print("SANDBOX_RECONCILED=True")
+                print("SANDBOX_OPERATION=%s" % operation_id)
+                print("SANDBOX_ORDER_ID=%s" % view["order_id"])
+                print("SANDBOX_PAYPAL_STATUS=%s" % view["status"])
+                print("SANDBOX_CREATE_KEY=%s" % intent["create_key"])
+                print("SANDBOX_TRANSPORT_CALLS=%d" % len(transport.calls))
+                print("SANDBOX_EVIDENCE=%s" % path)
+                print("SANDBOX_EXIT=0")
+                return EXIT_OK
             view = client.create_order(order, arguments.payee_email,
                                        arguments.return_url, arguments.cancel_url,
                                        request_id=create_key)
@@ -880,7 +939,8 @@ def sandbox_command(arguments):
             _write_intent(directory, intent)
             document = {
                 "schema": sandbox.SCHEMA, "interface": sandbox.INTERFACE,
-                "step": "create", "stamp": stamp, "business": arguments.business,
+                "step": "create", "stamp": stamp, "operation": operation_id,
+                "business": arguments.business,
                 "base": base,
                 "request": sandbox.redact(sandbox.create_body(
                     order, arguments.payee_email, arguments.return_url, arguments.cancel_url)),
@@ -893,6 +953,7 @@ def sandbox_command(arguments):
                          "PayPal reports APPROVED, whatever H56 decided."),
             }
             path = _sandbox_write(directory, "01_create_order.json", document)
+            print("SANDBOX_OPERATION=%s" % operation_id)
             print("SANDBOX_ORDER_ID=%s" % view["order_id"])
             print("SANDBOX_STATUS=%s" % view["status"])
             print("SANDBOX_APPROVE_URL=%s" % (view["approve_url"] or "-"))
@@ -908,11 +969,15 @@ def sandbox_command(arguments):
         if not arguments.order_id:
             raise sandbox.SandboxError("SANDBOX_ORDER_ID_REQUIRED", "--order-id")
 
-        # The capture path re-walks every local leg. The gate comes first, then the
-        # intent -- which is what binds this capture to the create this flow made, to
-        # this order id, and to this assessment -- and only then the network.
-        directory = settings.existing_run_directory(stamp, arguments.business)
-        gate = _h56_gate(stamp, arguments.business, order, catalogue, directory=directory)
+        # The capture path re-walks every local leg. The gate runs against the
+        # evaluation directory, the intent against the operation directory -- the same
+        # one, unless a re-evaluation under a new stamp is continuing this order.
+        intent_stamp = arguments.intent_stamp or stamp
+        evaluation_directory = settings.existing_run_directory(stamp, arguments.business)
+        gate = _h56_gate(stamp, arguments.business, order, catalogue,
+                         directory=evaluation_directory)
+        directory = (evaluation_directory if intent_stamp == stamp else
+                     settings.existing_run_directory(intent_stamp, arguments.business))
         intent = _read_intent(directory)
         if not intent or not intent.get("order_id"):
             raise sandbox.SandboxError(
@@ -921,9 +986,22 @@ def sandbox_command(arguments):
             raise sandbox.SandboxError(
                 sandbox.ORDER_MISMATCH,
                 "intent order_id=%s, requested=%s" % (intent["order_id"], arguments.order_id))
-        if intent.get("assessment_id") and intent["assessment_id"] != gate["assessment_id"]:
-            raise sandbox.SandboxError(
-                sandbox.H56_ORDER_MISMATCH, "the assessment moved between create and capture")
+        operation_id = "%s_%s" % (intent_stamp, arguments.business)
+        # The order content the intent recorded must still be the order content the
+        # catalogue admits now; the payee is the intent's own, and what PayPal holds is
+        # checked against it below, before any capture request exists.
+        _intent_matches(intent, order, intent.get("payee_ref"), operation_id)
+        # A re-evaluation is expected to name a different assessment than the one the
+        # order was created under -- the freshness contract requires exactly that once
+        # the 300 seconds are spent. What may not change is the order content, checked
+        # just above, and the current evaluation must pass the gate in its own right,
+        # which is what `gate` is. The movement is recorded, not hidden, and never
+        # grounds a second order: the intent's key and order id are the ones used.
+        reassessed = bool(intent.get("assessment_id")
+                          and intent["assessment_id"] != gate["assessment_id"])
+        # The business proposal holds for 900 seconds from its confirmation. Past that
+        # the proposal must be confirmed again; no capture rides on an expired one.
+        sandbox.check_proposal_window(intent["confirmed_at"])
 
         view = client.read_order(arguments.order_id)
         print("SANDBOX_PAYPAL_STATUS=%s" % view["status"])
@@ -931,7 +1009,8 @@ def sandbox_command(arguments):
 
         if arguments.step == "status":
             document = {"schema": sandbox.SCHEMA, "step": "status",
-                        "order_id": arguments.order_id, "response": view,
+                        "order_id": arguments.order_id, "operation": operation_id,
+                        "response": view,
                         "h56": {"assessment_id": gate["assessment_id"],
                                 "decision": gate["decision"]},
                         "authority_granted": view["status"] == sandbox.APPROVED}
@@ -948,8 +1027,10 @@ def sandbox_command(arguments):
         # reported never.
         sandbox.verify_order(view, arguments.order_id, order, intent.get("payee_ref"))
         state = sandbox.capture_preconditions(view)
+        print("SANDBOX_OPERATION=%s" % operation_id)
         print("SANDBOX_PRECONDITION=%s" % state)
         print("SANDBOX_H56_DECISION=%s" % gate["decision"])
+        print("SANDBOX_REASSESSED=%s" % reassessed)
         if state == sandbox.ALREADY_CAPTURED:
             print("SANDBOX_ALREADY_CAPTURED=True")
             print("SANDBOX_NOTE=order was already captured; nothing was charged again")
@@ -960,10 +1041,13 @@ def sandbox_command(arguments):
                                         order["amount_minor"], order["currency"])
         settled = captured["capture_status"] == sandbox.COMPLETED
         document = {"schema": sandbox.SCHEMA, "step": "capture",
-                    "order_id": arguments.order_id, "capture": captured,
+                    "order_id": arguments.order_id, "operation": operation_id,
+                    "capture": captured,
                     "commit_key": sandbox.commit_key(seed),
                     "settled": settled, "capture_state": captured["capture_status"],
+                    "reassessed": reassessed,
                     "h56": {"assessment_id": gate["assessment_id"],
+                            "assessment_at_create": intent.get("assessment_id"),
                             "decision": gate["decision"]},
                     "authority_granted": True,
                     "note": ("Capture proceeded only because PayPal reported APPROVED and "

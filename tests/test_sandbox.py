@@ -5,6 +5,7 @@ Every value below that looks like a credential is a literal marked as mock. The 
 and restore the previous environment afterwards, so a run of this suite cannot inherit a
 real credential from the shell that started it and cannot leave one behind.
 """
+import datetime
 import json
 import os
 import unittest
@@ -506,23 +507,52 @@ class PendingCaptureTests(SandboxCase):
 
 
 class CreateKeyTests(SandboxCase):
-    """The create has its own derived key: same operation, same key, whatever restarted."""
+    """The create has its own derived key: same operation, same key, whatever restarted.
+
+    The auditor measured two purchases of the same item at the same price to the same
+    payee coming out with the same key, so the operation id -- not the shopping basket --
+    is what separates a second purchase from a retry of the first.
+    """
+
+    OPERATION = "20261103T030001Z_shop"
 
     def test_the_create_key_is_stable_and_prefixed(self):
-        seed = sandbox.create_seed(order(), "sb-seller@business.example.com")
+        seed = sandbox.create_seed(order(), "sb-seller@business.example.com", self.OPERATION)
         self.assertEqual(sandbox.create_key(seed), sandbox.create_key(seed))
         self.assertTrue(sandbox.create_key(seed).startswith("h56-create-"))
 
     def test_different_operations_have_different_keys(self):
-        seed = sandbox.create_seed(order(), "sb-seller@business.example.com")
+        seed = sandbox.create_seed(order(), "sb-seller@business.example.com", self.OPERATION)
         variants = {sandbox.create_key(seed),
                     sandbox.create_key(sandbox.create_seed(
-                        order(amount_minor=2500), "sb-seller@business.example.com")),
+                        order(amount_minor=2500), "sb-seller@business.example.com",
+                        self.OPERATION)),
                     sandbox.create_key(sandbox.create_seed(
-                        order(), "sb-other@business.example.com")),
+                        order(), "sb-other@business.example.com", self.OPERATION)),
                     sandbox.create_key(sandbox.create_seed(
-                        order(offer_id="S-C02"), "sb-seller@business.example.com"))}
+                        order(offer_id="S-C02"), "sb-seller@business.example.com",
+                        self.OPERATION))}
         self.assertEqual(len(variants), 4)
+
+    def test_two_purchases_of_the_same_item_do_not_share_a_key(self):
+        first = sandbox.create_seed(order(), "sb-seller@business.example.com",
+                                    "20261103T030001Z_shop")
+        second = sandbox.create_seed(order(), "sb-seller@business.example.com",
+                                     "20261103T030009Z_shop")
+        self.assertNotEqual(first, second)
+
+    def test_the_same_operation_retries_under_the_same_key(self):
+        first = sandbox.create_seed(order(), "sb-seller@business.example.com",
+                                    "20261103T030001Z_shop")
+        second = sandbox.create_seed(order(), "sb-seller@business.example.com",
+                                     "20261103T030001Z_shop")
+        self.assertEqual(first, second)
+
+    def test_an_operation_id_is_required(self):
+        for bad in (None, "", 7):
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                sandbox.create_seed(order(), "sb-seller@business.example.com", bad)
+            self.assertEqual(caught.exception.code, sandbox.OPERATION_ID_INVALID)
 
     def test_the_capture_key_is_unchanged(self):
         self.assertEqual(sandbox.commit_key("c" * 64).startswith("h56-capture-"), True)
@@ -532,6 +562,149 @@ class CreateKeyTests(SandboxCase):
             sandbox.operation_key("refund", "c" * 64)
         with self.assertRaises(sandbox.SandboxError):
             sandbox.create_key("not-a-digest")
+
+
+class RedirectGuardTests(SandboxCase):
+    """A redirect is refused before a second request exists.
+
+    The auditor measured the default handler following a 302 off the pinned host with the
+    Authorization header still attached -- the endpoint check runs once, on the URL the
+    caller asked for, and never sees the URL being jumped to. Nothing here touches a
+    network: the guard is the handler urllib itself would call, driven directly.
+    """
+
+    @staticmethod
+    def redirect_headers(location):
+        import email.message
+        headers = email.message.Message()
+        headers["location"] = location
+        return headers
+
+    def refused(self, location):
+        import io
+        request = type("Request", (), {"full_url": sandbox.SANDBOX_BASE + "/v1/oauth2/token"})()
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox._RedirectGuard().http_error_302(
+                request, io.BytesIO(b""), 302, "Found", self.redirect_headers(location))
+        return caught.exception
+
+    def test_a_cross_origin_redirect_is_refused_before_it_happens(self):
+        error = self.refused("https://evil.invalid/steal")
+        self.assertEqual(error.code, sandbox.REDIRECT_REFUSED)
+        self.assertIn("evil.invalid", error.detail)
+
+    def test_even_a_same_host_redirect_is_refused(self):
+        # The three endpoints this client speaks to never legitimately redirect, so a
+        # redirect at all is a signal something is wrong, whatever its target.
+        self.assertEqual(self.refused(
+            sandbox.SANDBOX_BASE + "/elsewhere").code, sandbox.REDIRECT_REFUSED)
+
+    def test_the_live_transport_builds_its_opener_with_the_guard(self):
+        transport = sandbox.LiveTransport(sandbox.SANDBOX_BASE)
+        self.assertTrue(any(isinstance(handler, sandbox._RedirectGuard)
+                            for handler in transport._opener.handlers))
+
+
+class TimeContractTests(SandboxCase):
+    """300 seconds of freshness, the future refused outright, 900 seconds of proposal.
+
+    The auditor measured a 602-second-old evaluation passing and an evaluation dated an
+    hour ahead passing too. The wall clock is the only witness here: the envelope is
+    self-consistent by construction, so nothing else can catch it.
+    """
+
+    @staticmethod
+    def stamp(seconds):
+        import datetime
+        moment = datetime.datetime.utcnow() + datetime.timedelta(seconds=seconds)
+        return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def test_evaluations_within_300_seconds_are_fresh(self):
+        for age in (0, 299, 300):
+            self.assertGreaterEqual(sandbox.check_evaluation_freshness(self.stamp(-age)), 0)
+
+    def test_an_evaluation_past_300_seconds_is_stale(self):
+        for age in (301, 602, 86401):
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                sandbox.check_evaluation_freshness(self.stamp(-age))
+            self.assertEqual(caught.exception.code, sandbox.H56_EVALUATION_STALE)
+
+    def test_an_evaluation_dated_in_the_future_is_refused(self):
+        for age in (1, 3600):
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                sandbox.check_evaluation_freshness(self.stamp(age))
+            self.assertEqual(caught.exception.code, sandbox.H56_EVALUATION_FUTURE)
+
+    def test_an_unreadable_timestamp_is_refused(self):
+        for bad in ("", None, 7, "2026-13-01T00:00:00Z", "20261103T030000Z"):
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                sandbox.check_evaluation_freshness(bad)
+            self.assertEqual(caught.exception.code, sandbox.EVALUATION_TIMESTAMP_INVALID)
+
+    def test_the_proposal_window_holds_for_900_seconds(self):
+        for age in (0, 899, 900):
+            self.assertGreaterEqual(sandbox.check_proposal_window(self.stamp(-age)), 0)
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.check_proposal_window(self.stamp(-901))
+        self.assertEqual(caught.exception.code, sandbox.PROPOSAL_EXPIRED)
+
+    def test_a_confirmation_dated_in_the_future_is_an_unnamed_state(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.check_proposal_window(self.stamp(60))
+        self.assertEqual(caught.exception.code, sandbox.RUN_STATE_UNKNOWN)
+
+
+class IntentMatchTests(SandboxCase):
+    """The saved intent governs the retry.
+
+    The auditor measured a retry after a simulated timeout that sent a new request under
+    a recomputed key with a new payee while the intent file still held the old key and
+    the old payee digest. Every divergence here is named, and none of them is a pass.
+    """
+
+    PAYEE = "sb-seller@business.example.com"
+
+    def intent(self, **overrides):
+        base = {"create_key": "h56-create-" + "a" * 32, "operation_id": "S1_shop",
+                "confirmed_at": "2026-11-03T03:00:00Z",
+                "offer_id": "S-C01", "amount_minor": 100, "currency": "USD",
+                "payee_ref": sandbox.payee_ref(self.PAYEE)}
+        base.update(overrides)
+        return base
+
+    def order(self):
+        return {"offer_id": "S-C01", "amount_minor": 100, "currency": "USD",
+                "payee": "PAYPAL-MERCHANT-SANDBOX-001"}
+
+    def test_a_matching_intent_passes(self):
+        self.assertTrue(main._intent_matches(
+            self.intent(), self.order(), self.intent()["payee_ref"], "S1_shop"))
+
+    def test_a_changed_payee_is_refused_by_name(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            main._intent_matches(self.intent(), self.order(),
+                                 sandbox.payee_ref("sb-other@business.example.com"), "S1_shop")
+        self.assertEqual(caught.exception.code, sandbox.INTENT_MISMATCH)
+        self.assertIn("payee_ref", caught.exception.detail)
+
+    def test_each_other_divergence_is_named_too(self):
+        for field, value in (("offer_id", "S-C02"), ("amount_minor", 2500),
+                             ("currency", "EUR"), ("operation_id", "S2_shop")):
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                main._intent_matches(self.intent(**{field: value}), self.order(),
+                                     self.intent()["payee_ref"], "S1_shop")
+            self.assertEqual(caught.exception.code, sandbox.INTENT_MISMATCH)
+            self.assertIn(field, caught.exception.detail)
+
+    def test_an_intent_without_a_confirmation_or_key_is_refused(self):
+        for field in ("confirmed_at", "create_key"):
+            broken = self.intent()
+            broken.pop(field)
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                main._intent_matches(broken, self.order(),
+                                     self.intent()["payee_ref"], "S1_shop")
+            self.assertEqual(caught.exception.code, sandbox.INTENT_MISMATCH)
+            self.assertIn(field, caught.exception.detail)
 
 
 class IntentStateTests(SandboxCase):
@@ -661,6 +834,22 @@ class H56GateTests(unittest.TestCase):
         with self.assertRaises(sandbox.SandboxError) as caught:
             self.gate("20261103T030006Z")
         self.assertEqual(caught.exception.code, sandbox.H56_EVALUATION_STALE)
+
+    def test_an_evaluation_602_seconds_old_is_stale_too(self):
+        # The auditor measured this exact age passing, because the bound was a day.
+        # The evaluation is fully self-consistent -- observed_at rides on as_of -- so
+        # only the gate's wall clock can refuse it, and now it does.
+        moment = datetime.datetime.utcnow() - datetime.timedelta(seconds=602)
+        self.evaluate("20261103T030007Z", as_of=moment.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            self.gate("20261103T030007Z")
+        self.assertEqual(caught.exception.code, sandbox.H56_EVALUATION_STALE)
+
+    def test_an_evaluation_dated_in_the_future_is_refused(self):
+        self.evaluate("20261103T030008Z", as_of="2030-01-01T00:00:00Z")
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            self.gate("20261103T030008Z")
+        self.assertEqual(caught.exception.code, sandbox.H56_EVALUATION_FUTURE)
 
 
 if __name__ == "__main__":

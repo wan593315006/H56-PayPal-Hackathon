@@ -22,6 +22,7 @@ no network: every HTTP call goes through `Transport`, and the mock transport is 
 implementation, not a stub.
 """
 import base64
+import datetime
 import hashlib
 import json
 import os
@@ -51,11 +52,18 @@ JSON_TYPE = "application/json"
 REQUEST_TIMEOUT = 25
 MAX_RESPONSE_BYTES = 262144
 
-# The kernel's own evidence fields expire within minutes and the kernel refuses an expired
-# snapshot at evaluation time, so this bound is not re-deriving that rule. It exists so a
-# capture cannot be hung off an evaluation from a previous day and still call itself
-# "current". Measured in whole seconds against the request's own `as_of`.
-MAX_EVALUATION_AGE_SECONDS = 86400
+# The freshness contract (施工方案 §7, restored by the P3.2 audit): an evaluation is
+# usable for at most 300 seconds from its own `as_of`, measured against the real wall
+# clock at the moment of execution, and a timestamp dated in the future is not evidence
+# at all. The previous bound here was 86400 seconds -- a day -- which is why the auditor
+# measured a 602-second-old evaluation passing the gate. Past the bound the flow turns to
+# a real re-evaluation under a fresh snapshot; timestamps are never stretched to fit.
+MAX_EVALUATION_AGE_SECONDS = 300
+# The business proposal -- what is being bought, at what price, to whom -- holds for
+# 900 seconds from the moment it was confirmed. A re-evaluation past the 300-second
+# freshness bound may still continue the same operation inside this window; past it the
+# proposal itself must be confirmed again, and no order is created or captured.
+PROPOSAL_WINDOW_SECONDS = 900
 
 SANDBOX_HOST_REFUSED = "SANDBOX_HOST_REFUSED"
 ENVIRONMENT_UNKNOWN = "SANDBOX_ENVIRONMENT_UNKNOWN"
@@ -71,13 +79,19 @@ CAPTURE_MISSING = "SANDBOX_CAPTURE_MISSING"
 CAPTURE_PENDING = "SANDBOX_CAPTURE_PENDING"
 ORDER_MISMATCH = "SANDBOX_ORDER_MISMATCH"
 KEY_SEED_INVALID = "SANDBOX_COMMIT_KEY_SEED_INVALID"
+OPERATION_ID_INVALID = "SANDBOX_OPERATION_ID_INVALID"
 TRANSPORT_REFUSED = "SANDBOX_TRANSPORT_REFUSED"
+REDIRECT_REFUSED = "SANDBOX_REDIRECT_REFUSED"
+INTENT_MISMATCH = "SANDBOX_INTENT_MISMATCH"
+EVALUATION_TIMESTAMP_INVALID = "SANDBOX_EVALUATION_TIMESTAMP_INVALID"
 H56_RECORD_MISSING = "SANDBOX_H56_RECORD_MISSING"
 H56_RECORD_UNAVAILABLE = "SANDBOX_H56_RECORD_UNAVAILABLE"
 H56_ORDER_MISMATCH = "SANDBOX_H56_ORDER_MISMATCH"
 H56_BINDING_INVALID = "SANDBOX_H56_BINDING_INVALID"
 H56_DECISION_NOT_FEASIBLE = "SANDBOX_H56_DECISION_NOT_FEASIBLE"
 H56_EVALUATION_STALE = "SANDBOX_H56_EVALUATION_STALE"
+H56_EVALUATION_FUTURE = "SANDBOX_H56_EVALUATION_FUTURE"
+PROPOSAL_EXPIRED = "SANDBOX_PROPOSAL_EXPIRED"
 RUN_STATE_UNKNOWN = "SANDBOX_RUN_STATE_UNKNOWN"
 
 CREATED = "CREATED"
@@ -176,6 +190,73 @@ def amount_value(amount_minor):
     return "%d.%02d" % (units, cents)
 
 
+def parse_stamp(text):
+    """The one timestamp shape the contract allows: 2026-11-03T02:17:41Z, whole seconds.
+
+    Anything else -- a float, a local-format date, a stamp with an offset -- is not a
+    timestamp this flow wrote, and a clock value nobody can place is not a clock value
+    to bet money on.
+    """
+    if not isinstance(text, str):
+        raise SandboxError(EVALUATION_TIMESTAMP_INVALID, type(text).__name__)
+    try:
+        return datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        raise SandboxError(EVALUATION_TIMESTAMP_INVALID, text) from None
+
+
+def evaluation_age_seconds(as_of, now=None):
+    """Whole seconds between the evaluation's `as_of` and the real wall clock.
+
+    Floored, not truncated: `int()` folds a stamp 0.9 seconds into the future into an
+    age of 0 and accepts it, and the future is refused on the sign before any rounding.
+    The floor division is deliberate -- `math.floor` without adding a name to the closed
+    import set the offline test holds to.
+    """
+    reference = now or datetime.datetime.utcnow()
+    return int((reference - parse_stamp(as_of)).total_seconds() // 1)
+
+
+def check_evaluation_freshness(as_of, now=None):
+    """The 300-second freshness contract, with the future refused outright.
+
+    Two refusals, both named, because the auditor measured both holes: an evaluation
+    602 seconds old passed (the bound was a day), and an evaluation dated an hour into
+    the future passed too -- a clock that has not reached its own `as_of` yet has nothing
+    to vouch for, and accepting it means a document can be minted "fresh" by pointing it
+    at tomorrow. Past the bound the answer is a real re-evaluation, never a stretched
+    timestamp.
+    """
+    age = evaluation_age_seconds(as_of, now)
+    if age < 0:
+        raise SandboxError(H56_EVALUATION_FUTURE,
+                           "as_of=%s is %ds ahead of the clock" % (as_of, -age))
+    if age > MAX_EVALUATION_AGE_SECONDS:
+        raise SandboxError(H56_EVALUATION_STALE,
+                           "as_of=%s age=%ds limit=%ds" % (as_of, age, MAX_EVALUATION_AGE_SECONDS))
+    return age
+
+
+def check_proposal_window(confirmed_at, now=None):
+    """The 900-second business-proposal window, measured from its confirmation.
+
+    A re-evaluation past the freshness bound may still carry the same operation forward,
+    because what is being bought has not changed; what it may not do is outlive the
+    proposal it was confirming. Past this window the proposal must be confirmed again --
+    a new operation, a new confirmation -- and nothing is created or captured on the old
+    one's momentum.
+    """
+    age = evaluation_age_seconds(confirmed_at, now)
+    if age < 0:
+        raise SandboxError(RUN_STATE_UNKNOWN,
+                           "confirmed_at=%s is in the future" % (confirmed_at,))
+    if age > PROPOSAL_WINDOW_SECONDS:
+        raise SandboxError(PROPOSAL_EXPIRED,
+                           "confirmed_at=%s age=%ds limit=%ds"
+                           % (confirmed_at, age, PROPOSAL_WINDOW_SECONDS))
+    return age
+
+
 def operation_key(prefix, seed):
     """`PayPal-Request-Id` for any operation, derived from that operation's digest.
 
@@ -217,22 +298,27 @@ def commit_seed(order_id, amount_minor, currency):
         json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def create_seed(order, payee_email):
+def create_seed(order, payee_email, operation_id):
     """The digest a create key is derived from.
 
     The capture key has an order id to hold on to; a creation does not, since the order id
-    is what the call is trying to obtain. What identifies a creation is the offer, the
-    amount, the currency and the payee -- so those, and only those, are digested. The
-    payee enters as a digest: the key travels in a request header, and a header is not a
-    place an address should be readable. The same business operation retried after a
-    timeout, a crash or a restart recomputes this seed from its inputs and presents the
-    same key, which is what makes PayPal treat the second attempt as the first one
-    completed rather than a second order.
+    is what the call is trying to obtain. What identifies a creation is the business
+    operation it belongs to -- and the auditor measured why the offer's attributes alone
+    are not that: two separate purchases of the same item, at the same price, to the same
+    payee, came out with the same key, so PayPal would have read the second purchase as a
+    retry of the first. The persisted operation id is part of the key's identity, which
+    keeps the two cases apart: the same operation retried recomputes the same key, and a
+    different operation -- however similar its shopping basket -- derives a different one.
+    The payee enters as a digest: the key travels in a request header, and a header is not
+    a place an address should be readable.
     """
     if not isinstance(order, dict):
         raise SandboxError(AMOUNT_INVALID, "order is not a mapping")
+    if not isinstance(operation_id, str) or not operation_id:
+        raise SandboxError(OPERATION_ID_INVALID, type(operation_id).__name__)
     amount_value(order.get("amount_minor"))
-    material = {"intent": "create", "offer_id": str(order.get("offer_id")),
+    material = {"intent": "create", "operation": operation_id,
+                "offer_id": str(order.get("offer_id")),
                 "amount_minor": order.get("amount_minor"),
                 "currency": str(order.get("currency")),
                 "payee": _digest(payee_email)}
@@ -564,12 +650,32 @@ class SpyTransport(Transport):
         return self._answer("GET", url, None, headers)
 
 
+class _RedirectGuard(urllib.request.HTTPRedirectHandler):
+    """Every redirect is refused before a second request exists.
+
+    urllib's default handler follows the jump and rebuilds the request with the caller's
+    headers still attached -- Authorization included -- so a 302 off the pinned host would
+    leave with credentials on it, and `_send`'s endpoint check never sees the URL being
+    jumped to because it runs once, on the URL the caller asked for. The auditor measured
+    exactly this in a fully in-memory 302 simulation: the second request went to another
+    origin with the Authorization header still set. Refusing inside `redirect_request`
+    means the decline happens before any second request is built or sent; nothing reaches
+    the redirect target. The three endpoints this client speaks to never legitimately
+    redirect, so a redirect at all is a signal something is wrong, whatever its target.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise SandboxError(REDIRECT_REFUSED, str(newurl))
+
+
 class LiveTransport(Transport):
     """Real HTTP, and only to the one pinned sandbox API host.
 
     Constructing it with any other host refuses immediately, and every request is
     re-checked against the pinned host before it is sent -- `self.base` is a value, and
-    values can be held wrong by a caller; the endpoint check is the thing that runs.
+    values can be held wrong by a caller; the endpoint check is the thing that runs. The
+    opener carries `_RedirectGuard`, so a redirect cannot leave this host with the
+    caller's credentials attached.
     """
 
     def __init__(self, base, timeout=REQUEST_TIMEOUT):
@@ -579,6 +685,7 @@ class LiveTransport(Transport):
                                "%s (want %s)" % (base, SANDBOX_BASE))
         self.base = base
         self.timeout = timeout
+        self._opener = urllib.request.build_opener(_RedirectGuard())
 
     def _send(self, method, url, payload, headers):
         require_api_endpoint(url)
@@ -587,7 +694,7 @@ class LiveTransport(Transport):
         for name, value in headers.items():
             request.add_header(name, value)
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as answer:
+            with self._opener.open(request, timeout=self.timeout) as answer:
                 return answer.getcode(), answer.read(MAX_RESPONSE_BYTES)
         except urllib.error.HTTPError as error:
             return error.code, error.read(MAX_RESPONSE_BYTES)
