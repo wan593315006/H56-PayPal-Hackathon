@@ -40,6 +40,28 @@ H56 只读证据台已启动
 
 **第三道闸为什么存在？** 这个服务本该没有任何写操作，那么 POST 就不该有语义。要求 body 恒为 `{}` 是一个"空操作证明"：任何试图携带指令的请求（哪怕未来误加了路由）在数据形状上就先被拒绝，不必依赖下游校验。
 
+## 第四道边界：读盘前问位置，不只问名字
+
+路径参数白名单只约束**名字**。一个合规命名的 `runs/20261231T000000Z_shop/` 可以是**目录联接**（junction），内容指向 `runs\` 之外；白名单通过，读出来的是外部文件。实测过：整改前这个请求返回 **200**，响应里带着树外文件的内容。
+
+所以每次读盘前要过两道检查，缺一不可：
+
+| 检查 | 挡的是什么 |
+| --- | --- |
+| 从根到目标逐级查重解析点（`lstat().st_file_attributes & FILE_ATTRIBUTE_REPARSE_POINT` 或符号链接） | 名字在根内、内容在根外 |
+| `os.path.realpath` 后仍须在根内 | 各种重定向形式离开根 |
+
+只查一个都能被另一个绕过。`runs/` 或 `records/` 自身是联接时，整棵子树直接不可读——一个联接到别处的根，没有任何路径可以在它内部被推理。
+
+被拒绝的条目不会从列表里消失：`GET /api/refused` 会列出来。**"列表里没有"和"存在但被拒"对审计是两件不同的事**，静默跳过等于把问题藏起来。
+
+## 结论只属于它自己的评估
+
+`/api/records` 里的 `decision` 只从**同一个 `assessment_id`** 的 run 取。曾经有一个按时间戳兜底的分支：精确匹配失败时，找同戳的任意 run 拿结论。两项业务同戳、一个可行一个不可行时，删掉不可行那条的 `result.json`，页面就把另一条业务的 `FEASIBLE` 显示在了不可行记录上。
+
+现在找不到就返回 `null`，`decision_source=NO_MATCH`，页面显示「未知」。`artifact_decision` 是产物自己写的判定；它与 run 判定不一致时 `decision_conflict=true`，页面同时标「冲突」。**同戳不等于同一条评估**，显示未知比显示别人的结论更接近事实。
+
+
 ## 为什么是只读
 
 代码里没有任何 `open(..., "w")`、`mkdir`、`unlink`、`rename`。所有读操作都走 `pathlib.Path.read_bytes()` / `read_text()`，`runs/` 与 `records/` 只出现在路径拼接的左侧。
@@ -76,9 +98,12 @@ python -B -m app.main verify --stamp 20261103T171000Z --business shop
 | `GET /` | 返回 `index.html` |
 | `GET /api/runs` | 每个 run 一条：`stamp`、`business`、`decision`、`stage`、`native_calls`、`boundary`（三布尔）、`has_binding`、`files`、`binding_ok` |
 | `GET /api/run?stamp=…&business=…` | 单个 run 的完整只读视图，含 `order`、`policy`、`reference`、`binding` 原文与 `binding_check` |
-| `GET /api/records` | 每个 session：`session`、`assessment_id`、`decision`、`artifact_bytes`、`events`、`journal_state` |
+| `GET /api/records` | 每个 session：`session`、`assessment_id`、`decision`、`decision_source`、`decision_run`、`artifact_decision`、`decision_conflict`、`artifact_bytes`、`events`、`journal_state`、`journal_damaged_line` |
+| `GET /api/refused` | 被边界检查拒掉的条目：`entry`、`code`、`why`、`root`（`runs` 或 `records`） |
 
-路径参数按白名单校验：`stamp` 必须匹配 `^[0-9]{8}T[0-9]{6}Z$`，`business` 必须匹配 `^[A-Za-z0-9_-]{1,32}$`。`..`、`/`、`\` 不可能出现在参数里，因为它们过不了正则。
+路径参数按白名单校验：`stamp` 必须匹配 `^[0-9]{8}T[0-9]{6}Z$`，`business` 必须匹配 `^[A-Za-z0-9_-]{1,32}$`。`..`、`/`、`\` 不可能出现在参数里，因为它们过不了正则。**正则之外还要过位置检查**，见上一节。
+
+名字通过白名单而内容在根外时，`/api/run` 返回 **403 `PATH_OUTSIDE_ROOT`**——不是 404（目录存在），也不是 500（这不是服务端故障）。
 
 异常一律收敛成 `{"error": "<code>"}` + 500，响应体里不会有 traceback。
 
@@ -86,5 +111,6 @@ python -B -m app.main verify --stamp 20261103T171000Z --business shop
 
 - 只监听 `127.0.0.1`，不监听 `0.0.0.0`，局域网内其它机器访问不到。
 - token 每次重启都变，旧标签页会拿到 401，重新粘贴即可。
-- `records/*/events.jsonl` 末行不完整时标记 `journal_state=DAMAGED` 并继续展示其余 session，不抛异常。
+- `records/*/events.jsonl` 的 `journal_state` 与 `app/recovery.journal_state` **判据逐字一致**：末行没有换行符、或某一整行不是 JSON，都叫 `TORN`（内核拒绝这两个条件用的是同一条规则）。空文件与无文件都叫 `MISSING`。判据不一致时，同一份字节会被三处读成两种结论——显示层可以对内容保守，但不能比内核更乐观。
+- 硬链接（hard link）不在检查范围：它与目标共享同一个文件对象，路径本身没有离开 `runs\`，无法从路径判断。本页只挡"名字在根内、内容在根外"的联接与重定向。
 - 页面零外链（无 CDN、无远程字体、无图片），断网可用。

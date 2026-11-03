@@ -6,6 +6,11 @@
   * 纯标准库，不引用交付包的应用层与内核层模块，不联网。
   * 纯只读：只做 open/read，从不写 runs/ 或 records/，从不触发新的评估。
   * 三道闸：Host 精确匹配、一次性 token、POST 空体。
+
+读取边界的第四条约束（P2 审计整改后加入）：参数字符白名单只约束**名字**，不约束**位置**。
+一个合规命名的 run 目录可以是目录联接（junction / symlink / 其它重解析点），
+白名单校验通过而内容在 runs\ 之外。所以每次读盘前都要问两件事：
+真实路径是否仍在根内，以及从根到目标的路径上有无重解析点。两者任一不成立即拒绝。
 """
 
 from __future__ import annotations
@@ -13,8 +18,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import secrets
+import stat
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -34,6 +41,9 @@ TOKEN_HEADER = "X-H56-Run-Token"
 
 # 只读视图里允许暴露的 run 文件（白名单，不做目录拼接之外的探索）
 RUN_FILES = ("request.json", "evidence.json", "result.json", "binding.json")
+
+REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
 
 
 # --------------------------------------------------------------------------
@@ -82,28 +92,132 @@ def as_bool(value) -> bool:
 
 
 # --------------------------------------------------------------------------
+# 读取边界
+# --------------------------------------------------------------------------
+
+class BoundaryError(Exception):
+    """一个路径没通过边界检查。`code` 直接进响应体，不吞掉原因。"""
+
+    def __init__(self, code, detail=""):
+        self.code = code
+        self.detail = detail
+        super().__init__(code + (": " + detail if detail else ""))
+
+
+def is_reparse(path: Path) -> bool:
+    """符号链接，或任何带重解析点的对象（目录联接、挂载点等）。
+
+    `Path.is_symlink()` 只看符号链接；Windows 的目录联接（junction）不是符号链接，
+    却是把目录指到别处去的同一类东西。`lstat()` 的 `st_file_attributes` 才看得见它。
+    """
+    try:
+        info = os.lstat(str(path))
+    except OSError:
+        return False
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    return bool(getattr(info, "st_file_attributes", 0) & REPARSE_POINT)
+
+
+def resolve_within(path: Path, root: Path):
+    """路径在根内且路上没有重解析点时返回真实路径，否则返回 None。
+
+    两道判据都要，因为它们挡的不是同一种事：
+      * 重解析点检查 —— 名字在根内、内容在根外；
+      * realpath 包含检查 —— 根内的联接指向根外，或经由任意形式的重定向离开根。
+    只看其中一个都能被另一个绕过。
+    """
+    if is_reparse(root):
+        return None
+    current = Path(path)
+    chain = []
+    while True:
+        chain.append(current)
+        if current == root or current.parent == current:
+            break
+        current = current.parent
+    if not chain or chain[-1] != root:
+        return None
+    if any(is_reparse(item) for item in chain):
+        return None
+    try:
+        real = Path(os.path.realpath(str(path)))
+        real_root = Path(os.path.realpath(str(root)))
+    except OSError:
+        return None
+    if real != real_root and real_root not in real.parents:
+        return None
+    return real
+
+
+# --------------------------------------------------------------------------
 # 只读数据视图
 # --------------------------------------------------------------------------
 
-def list_run_dirs():
-    """枚举 runs/<stamp>_<business>/，目录名不合规的一律跳过。"""
-    found = []
+def scan_run_dirs():
+    """枚举 runs/<stamp>_<business>/，返回 (合规条目, 被边界检查拒掉的条目)。
+
+    被拒的条目要单独返回，不能只是静默跳过：看不见的东西无法被质疑，
+    而"列表里没有"与"存在但被拒"对审计是两件完全不同的事。
+    """
+    found, refused = [], []
     if not RUNS_DIR.is_dir():
-        return found
+        return found, refused
     for entry in sorted(RUNS_DIR.iterdir(), key=lambda p: p.name):
-        if not entry.is_dir():
-            continue
         stamp, sep, business = entry.name.partition("_")
         if not sep or not STAMP_RE.match(stamp) or not BUSINESS_RE.match(business):
             continue
+        if not entry.is_dir():
+            continue
+        if resolve_within(entry, RUNS_DIR) is None:
+            refused.append({"entry": entry.name, "code": "PATH_OUTSIDE_ROOT",
+                            "why": "目录联接或真实路径在 runs/ 之外"})
+            continue
         found.append((stamp, business, entry))
-    return found
+    return found, refused
+
+
+def list_run_dirs():
+    return scan_run_dirs()[0]
+
+
+def run_path(stamp: str, business: str) -> Path:
+    """按名字取 run 目录，名字之外还要过边界检查。"""
+    candidate = RUNS_DIR / ("%s_%s" % (stamp, business))
+    if not candidate.is_dir():
+        raise BoundaryError("RUN_NOT_FOUND")
+    if resolve_within(candidate, RUNS_DIR) is None:
+        raise BoundaryError("PATH_OUTSIDE_ROOT", candidate.name)
+    return candidate
+
+
+def run_file(run_dir: Path, name: str):
+    """run 目录里的一个文件，同样不能被联接带到外面去。"""
+    candidate = run_dir / name
+    if not candidate.exists():
+        return None
+    if resolve_within(candidate, RUNS_DIR) is None:
+        raise BoundaryError("PATH_OUTSIDE_ROOT", name)
+    return candidate
 
 
 def check_binding(run_dir: Path):
     """字节级自洽复核，不重算语义链。"""
-    binding_path = run_dir / "binding.json"
-    if not binding_path.is_file():
+    try:
+        binding_path = run_file(run_dir, "binding.json")
+        evidence_path = run_file(run_dir, "evidence.json")
+    except BoundaryError as error:
+        # A linked file inside an otherwise good directory is neither "absent" nor "clean".
+        # Saying `present: False` here would let the page show a harmless-looking gap.
+        return {
+            "present": True,
+            "ok": False,
+            "binding_sha256_match": False,
+            "evidence_sha256_match": False,
+            "boundary_refused": error.code,
+            "note": "读取被边界检查拒绝：%s" % error.detail,
+        }
+    if binding_path is None or not binding_path.is_file():
         return {
             "present": False,
             "ok": None,
@@ -128,7 +242,7 @@ def check_binding(run_dir: Path):
     binding_match = isinstance(claimed, str) and claimed == computed
 
     evidence_claimed = binding.get("evidence_sha256")
-    evidence_actual = file_sha256(run_dir / "evidence.json")
+    evidence_actual = file_sha256(evidence_path) if evidence_path is not None else None
     if evidence_actual is None:
         evidence_match = False
         evidence_note = "evidence.json 缺失，无法复核"
@@ -152,7 +266,12 @@ def check_binding(run_dir: Path):
 
 
 def summarize_run(stamp: str, business: str, run_dir: Path):
-    result, result_err = read_json(run_dir / "result.json")
+    try:
+        result_path = run_file(run_dir, "result.json")
+    except BoundaryError:
+        result_path = None
+    result, result_err = (read_json(result_path) if result_path is not None
+                          else (None, "OUTSIDE_ROOT"))
     if not isinstance(result, dict):
         result = {}
 
@@ -161,8 +280,12 @@ def summarize_run(stamp: str, business: str, run_dir: Path):
     files = []
     try:
         for child in sorted(run_dir.iterdir(), key=lambda p: p.name):
-            if child.is_file() and child.name in RUN_FILES:
-                files.append(child.name)
+            if child.name not in RUN_FILES or not child.is_file():
+                continue
+            # 白名单只挡名字；被联接指到根外的同名文件仍然要挡。
+            if resolve_within(child, RUNS_DIR) is None:
+                continue
+            files.append(child.name)
     except OSError:
         files = []
 
@@ -195,10 +318,28 @@ def api_runs():
             for stamp, business, run_dir in list_run_dirs()]
 
 
+def api_refused():
+    """被边界检查拒掉的条目。列出来，而不是让它们从列表里消失。"""
+    _found, refused = scan_run_dirs()
+    rows = [dict(row, root="runs") for row in refused]
+    if RECORDS_DIR.is_dir():
+        for entry in sorted(RECORDS_DIR.iterdir(), key=lambda p: p.name):
+            if not entry.is_dir() or not entry.name.startswith("oq_"):
+                continue
+            if resolve_within(entry, RECORDS_DIR) is None:
+                rows.append({"entry": entry.name, "code": "PATH_OUTSIDE_ROOT",
+                             "why": "目录联接或真实路径在 records/ 之外",
+                             "root": "records"})
+    return rows
+
+
 def api_run(stamp: str, business: str):
-    run_dir = RUNS_DIR / ("%s_%s" % (stamp, business))
-    if not run_dir.is_dir():
-        return None
+    try:
+        run_dir = run_path(stamp, business)
+    except BoundaryError as error:
+        if error.code == "RUN_NOT_FOUND":
+            return None
+        raise
 
     view = {
         "stamp": stamp,
@@ -217,7 +358,13 @@ def api_run(stamp: str, business: str):
                           ("request", "request.json"),
                           ("evidence", "evidence.json"),
                           ("binding", "binding.json")):
-        obj, err = read_json(run_dir / filename)
+        try:
+            path = run_file(run_dir, filename)
+        except BoundaryError as error:
+            view[key] = None
+            view["unreadable"].append({"file": filename, "state": error.code})
+            continue
+        obj, err = (read_json(path) if path is not None else (None, "MISSING"))
         view[key] = obj
         if err is not None:
             view["unreadable"].append({"file": filename, "state": err})
@@ -246,7 +393,13 @@ def split_session(session: str):
 
 
 def parse_journal(path: Path):
-    """逐行解析 events.jsonl。末行不是完整 JSON 时标 DAMAGED，绝不抛异常。"""
+    """逐行解析 events.jsonl。判据与 `app/recovery.journal_state` 逐字一致。
+
+    两个条件都叫 TORN，因为内核拒绝这两个条件用的是同一条规则：末行没有换行符，
+    或者某一整行不是 JSON。以前这里把"末行没换行"当成可读（先 pop 掉空段再逐行解析），
+    于是内核拒绝、恢复模块报 TORN_JOURNAL、UI 却显示 OK —— 三处对同一份字节给出两种结论。
+    一个显示层可以对内容保守，但不能对同一判据给出比内核更乐观的答案。
+    """
     if not path.is_file():
         return {"journal_state": "MISSING", "events": 0, "damaged_line": None}
 
@@ -254,6 +407,13 @@ def parse_journal(path: Path):
         raw = path.read_bytes()
     except OSError:
         return {"journal_state": "UNREADABLE", "events": 0, "damaged_line": None}
+
+    if not raw:
+        # An empty file and no file at all mean the same thing here, and `recovery` calls both
+        # MISSING. Reporting one of them as OK would make the same bytes read two ways.
+        return {"journal_state": "MISSING", "events": 0, "damaged_line": None}
+    if not raw.endswith(b"\n"):
+        return {"journal_state": "TORN", "events": 0, "damaged_line": None}
 
     lines = raw.split(b"\n")
     if lines and lines[-1] == b"":
@@ -266,19 +426,41 @@ def parse_journal(path: Path):
         try:
             json.loads(line.decode("utf-8-sig"))
         except (UnicodeDecodeError, ValueError):
-            return {"journal_state": "DAMAGED", "events": events, "damaged_line": index}
+            return {"journal_state": "TORN", "events": events, "damaged_line": index}
         events += 1
 
     return {"journal_state": "OK", "events": events, "damaged_line": None}
 
 
 def decision_index():
-    """stamp/business -> decision，用于给 record 补判定，缺失则留空。"""
+    """assessment_id -> 该评估自己的判定来源，用于给 record 补判定，缺失则留空。
+
+    索引键是 `assessment_id`，不是时间戳。按时间戳兜底曾经把另一条业务的结论借给了
+    当前记录：两项业务同戳、一个可行一个不可行，删掉不可行那条的 result.json 后，
+    UI 就把可行那条的 FEASIBLE 显示在了不可行记录上。**同戳不等于同一条评估**，
+    评估之间唯一的对应关系是 assessment_id（以及产物里的 semantic_sha256）。
+    找不到就返回空，显示"未知"比显示别人的结论更接近事实。
+    """
     index = {}
     for stamp, business, run_dir in list_run_dirs():
-        result, _ = read_json(run_dir / "result.json")
-        if isinstance(result, dict):
-            index[(stamp, business)] = result.get("decision")
+        try:
+            path = run_file(run_dir, "result.json")
+        except BoundaryError:
+            continue
+        if path is None:
+            continue
+        result, _ = read_json(path)
+        if not isinstance(result, dict):
+            continue
+        reference = result.get("reference") or {}
+        assessment_id = reference.get("assessment_id") or result.get("assessment_id")
+        if not isinstance(assessment_id, str) or not assessment_id.startswith("ASSESS:"):
+            continue
+        index[assessment_id] = {
+            "decision": result.get("decision"),
+            "stamp": stamp,
+            "business": business,
+        }
     return index
 
 
@@ -289,18 +471,26 @@ def api_records():
         return records
 
     for entry in sorted(RECORDS_DIR.iterdir(), key=lambda p: p.name):
-        if not entry.is_dir():
+        if not entry.is_dir() or not entry.name.startswith("oq_"):
+            continue
+        # 记录库这一侧同样要过边界：会话目录本身可以是联接。
+        if resolve_within(entry, RECORDS_DIR) is None:
             continue
         session = entry.name
         business, stamp = split_session(session)
 
-        journal = parse_journal(entry / "events.jsonl")
+        journal_path = entry / "events.jsonl"
+        journal = (parse_journal(journal_path)
+                   if resolve_within(journal_path, RECORDS_DIR) is not None
+                   else {"journal_state": "OUTSIDE_ROOT", "events": 0, "damaged_line": None})
 
         artifacts_dir = entry / "artifacts"
         artifact_files = []
-        if artifacts_dir.is_dir():
+        if artifacts_dir.is_dir() and resolve_within(artifacts_dir, RECORDS_DIR) is not None:
             try:
-                artifact_files = sorted(p for p in artifacts_dir.iterdir() if p.is_file())
+                artifact_files = sorted(p for p in artifacts_dir.iterdir()
+                                        if p.is_file()
+                                        and resolve_within(p, RECORDS_DIR) is not None)
             except OSError:
                 artifact_files = []
         artifact_bytes = 0
@@ -321,17 +511,23 @@ def api_records():
             if len(stem) == 64:
                 assessment_id = "ASSESS:" + stem
 
-        decision = decisions.get((stamp, business)) if stamp else None
-        if decision is None and stamp:
-            for (run_stamp, _run_business), value in decisions.items():
-                if run_stamp == stamp:
-                    decision = value
-                    break
+        match = decisions.get(assessment_id) if assessment_id else None
+        decision = match["decision"] if match else None
+        stored = None
+        if isinstance(artifact_doc, dict):
+            stored = (artifact_doc.get("c2_projection") or {}).get("decision")
 
         records.append({
             "session": session,
             "assessment_id": assessment_id,
             "decision": decision,
+            "decision_source": ("ASSESSMENT_MATCH" if match else "NO_MATCH"),
+            "decision_run": (None if not match
+                             else "%s_%s" % (match["stamp"], match["business"])),
+            # 产物里自己的判定与它对应的 run 判定不一致，是漂移的直接证据；
+            # 两者都可能"有值"，但只有一个能同时成立。
+            "artifact_decision": stored,
+            "decision_conflict": bool(match and stored and stored != decision),
             "artifact_bytes": artifact_bytes,
             "artifact_count": len(artifact_files),
             "events": journal["events"],
@@ -353,6 +549,7 @@ ERROR_TEXT = {
     "BODY_NOT_EMPTY": "POST 体必须是空对象 {}。",
     "BAD_PARAM": "stamp/business 未通过白名单校验。",
     "RUN_NOT_FOUND": "该 run 目录不存在。",
+    "PATH_OUTSIDE_ROOT": "该路径是目录联接/重解析点，或真实路径在 runs\\ / records\\ 之外，已拒绝读取。",
     "NOT_FOUND": "无此路由。",
     "INTERNAL_ERROR": "服务端读取失败，详情见服务进程 stderr。",
 }
@@ -514,6 +711,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, api_records(), "application/json; charset=utf-8")
             return
 
+        if path == "/api/refused":
+            self._send(200, api_refused(), "application/json; charset=utf-8")
+            return
+
         if path == "/api/run":
             query = parse_qs(urlparse(self.path).query, keep_blank_values=True)
             stamp = (query.get("stamp") or [""])[0].strip()
@@ -521,7 +722,12 @@ class Handler(BaseHTTPRequestHandler):
             if not STAMP_RE.match(stamp) or not BUSINESS_RE.match(business):
                 self._error(400, "BAD_PARAM")
                 return
-            view = api_run(stamp, business)
+            try:
+                view = api_run(stamp, business)
+            except BoundaryError as error:
+                # 名字通过白名单、内容在根外：这不是 404，也不是 500。
+                self._error(403, error.code)
+                return
             if view is None:
                 self._error(404, "RUN_NOT_FOUND")
                 return

@@ -552,10 +552,14 @@ def recover_command(arguments):
         degraded = [row for row in rows if row["state"] != recovery.HEALTHY]
         print("-" * 66)
         for row in degraded:
-            print("ADVICE %s: %s" % (row["session"], row["advice"]))
+            print("ADVICE %s: %s%s" % (
+                row["session"], row["advice"],
+                "" if not row["findings"] else " [%s]" % ",".join(sorted(set(row["findings"])))))
         print("SURVEY_SESSIONS=%d" % len(rows))
         print("SURVEY_HEALTHY=%d" % (len(rows) - len(degraded)))
         print("SURVEY_DEGRADED=%d" % len(degraded))
+        print("SURVEY_CHAIN_BROKEN=%d" % sum(1 for row in rows
+                                             if row["state"] == recovery.CHAIN_BROKEN))
         print("RECOVER_EXIT=0")
         return EXIT_OK
 
@@ -575,8 +579,18 @@ def recover_command(arguments):
         directory = settings.run_directory(arguments.stamp, arguments.business)
         created = True
 
+    # The kernel is the primary witness where it can still open the session. `recovery` does
+    # not import it: a survey has to work on a store the kernel has already refused. So the
+    # verifier is handed in here, and a refusal from it is a refusal from `restore`.
+    def kernel_view(session, reference):
+        from . import h56bridge
+        store = h56bridge.kernel()[1].RecordStore(
+            Path(settings.RECORDS_ROOT).absolute(), session, create=False)
+        return store.view(reference)["record"]
+
     try:
-        document, target = recovery.restore(settings.RECORDS_ROOT, arguments.session, directory)
+        document, target = recovery.restore(settings.RECORDS_ROOT, arguments.session,
+                                            directory, kernel_verifier=kernel_view)
     except recovery.RecoveryError as error:
         print("RECOVER   REFUSED code=%s detail=%s" % (error.code, str(error).split(": ")[-1]))
         print("RECOVER_EXIT=%d" % EXIT_RECOVERY)
@@ -588,6 +602,7 @@ def recover_command(arguments):
         arguments.session, document["decision"], document["native_calls"]))
     print("RECOVER_ORDER_RECOVERABLE=%s" % document["order_recoverable"])
     print("RECOVER_RUN_CREATED=%s" % created)
+    print("RECOVER_KERNEL_CHECKED=%s" % document["verification"]["kernel_consulted"])
     print("RECOVER_EXIT=0")
     return EXIT_OK
 

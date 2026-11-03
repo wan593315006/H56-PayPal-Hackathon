@@ -205,7 +205,7 @@
 
   var TOKEN_KEY = "h56.run.token";
   var $ = function(id){ return document.getElementById(id); };
-  var state = { runs: [], records: [], selected: null, token: "" };
+  var state = { runs: [], records: [], refused: [], selected: null, token: "" };
 
   function setStatus(text, kind){
     var node = $("status");
@@ -518,10 +518,34 @@
   function journalTag(value){
     var text = value || "—";
     var cls = "tag ";
+    // OK 之外一律算异常：TORN 是内核会整个拒绝的形状，OUTSIDE_ROOT 是边界拒绝，
+    // 两者都不能显示成"灰但不报警"。
     if (text === "OK") cls += "ok";
-    else if (text === "DAMAGED") cls += "bad";
-    else cls += "na";
+    else if (text === "MISSING") cls += "na";
+    else cls += "bad";
     return el("span", cls, text);
+  }
+
+  function recordDecisionCell(rec){
+    // 判定只来自 assessment_id 精确对应的那条 run。找不到就显示"未知"，
+    // 不用同戳的其它业务顶替；产物判定与 run 判定不一致时同时标出来。
+    var cell = el("td");
+    if (!rec.decision){
+      var unknown = el("span", "tag na", "未知");
+      unknown.title = "该评估没有对应的 run 判定（decision_source=" +
+        (rec.decision_source || "NO_MATCH") + "）";
+      cell.appendChild(unknown);
+    } else {
+      cell.appendChild(decisionTag(rec.decision));
+    }
+    if (rec.decision_conflict){
+      var conflict = el("span", "tag bad", "冲突");
+      conflict.title = "产物判定 " + rec.artifact_decision + " 与对应 run 判定 " +
+        rec.decision + " 不一致";
+      cell.appendChild(document.createTextNode(" "));
+      cell.appendChild(conflict);
+    }
+    return cell;
   }
 
   function renderRecords(){
@@ -542,7 +566,7 @@
       var tdA = el("td", "c-id mono");
       tdA.appendChild(copyable(rec.assessment_id, rec.assessment_id ? short(rec.assessment_id, 20) : "—"));
       tr.appendChild(tdA);
-      var tdD = el("td"); tdD.appendChild(decisionTag(rec.decision));
+      var tdD = recordDecisionCell(rec);
       tr.appendChild(tdD);
       tr.appendChild(el("td", "mono", rec.artifact_bytes));
       tr.appendChild(el("td", "mono", rec.events));
@@ -566,9 +590,16 @@
     }).then(function(records){
       state.records = Array.isArray(records) ? records : [];
       renderRecords();
+      return api("/api/refused");
+    }).then(function(refused){
+      state.refused = Array.isArray(refused) ? refused : [];
       var damaged = state.records.filter(function(r){ return r.journal_state !== "OK"; }).length;
+      var unknown = state.records.filter(function(r){ return r.decision_source === "NO_MATCH"; }).length;
       setStatus("已载入 · run " + state.runs.length + " 条 · record " + state.records.length +
-                " 条" + (damaged ? " · journal 异常 " + damaged : ""), "ok");
+                " 条" + (damaged ? " · journal 异常 " + damaged : "") +
+                (unknown ? " · 判定未知 " + unknown : "") +
+                (state.refused.length ? " · 边界拒绝 " + state.refused.length : ""),
+                (damaged || state.refused.length) ? "bad" : "ok");
     }).catch(function(err){
       setStatus(describeError(err), "bad");
       var msg = describeError(err);
