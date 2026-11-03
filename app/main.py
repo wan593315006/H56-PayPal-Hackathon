@@ -214,6 +214,8 @@ def selfcheck():
 
 EXIT_OK, EXIT_SELFCHECK, EXIT_USAGE, EXIT_BLOCKED, EXIT_KERNEL = 0, 1, 2, 3, 4
 EXIT_BINDING = 5
+EXIT_REPLAY = 6
+EXIT_RECOVERY = 7
 
 
 def build_order(offer_id, offer, amount_minor=None, currency=None, payee=None):
@@ -437,6 +439,157 @@ def verify_parser(sub):
     return parser
 
 
+def replay_parser(sub):
+    parser = sub.add_parser(
+        "replay", help="re-submit one run's stored request and report whether it reused")
+    parser.add_argument("--stamp", required=True, help="20261103T171000Z")
+    parser.add_argument("--business", default="shop")
+    return parser
+
+
+def replay_command(arguments):
+    """Submit the bytes already on disk again, and report what the kernel did with them.
+
+    The point is not to compute anything. A successful replay must leave the journal byte
+    for byte unchanged: that is what "the kernel returned its original record" looks like
+    from outside. A second assessment, by contrast, appends an event, and that difference is
+    the only reliable way to tell the two apart -- `native_recomputed` is written as False on
+    every successful return, including a fresh computation, so it cannot be the judge.
+    """
+    from . import h56bridge
+
+    try:
+        directory = settings.existing_run_directory(arguments.stamp, arguments.business)
+    except settings.RunPathError as error:
+        # A missing directory is a refusal with a name, not a traceback. The earlier version
+        # let it escape and exited 1 by crashing, which looks like success to a wrapper that
+        # only checks "non-zero" and tells an operator nothing about what was missing.
+        print("REPLAY    REFUSED code=%s" % error.code)
+        print("REPLAY_STATE=%s" % error.code)
+        print("REPLAY_EXIT=%d" % EXIT_REPLAY)
+        return EXIT_REPLAY
+
+    required = ("request.json", "evidence.json", "result.json")
+    missing = [name for name in required if not directory.joinpath(name).is_file()]
+    if missing:
+        print("REPLAY    REFUSED code=REPLAY_DOCUMENT_MISSING:%s" % ",".join(missing))
+        print("REPLAY_STATE=DOCUMENT_MISSING")
+        print("REPLAY_EXIT=%d" % EXIT_REPLAY)
+        return EXIT_REPLAY
+
+    read = lambda name: json.loads(directory.joinpath(name).read_bytes().decode("utf-8"))
+    request = read("request.json")
+    result = read("result.json")
+    evidence_raw = directory.joinpath("evidence.json").read_bytes()
+    session = "oq_%s_%s" % (arguments.business, arguments.stamp)
+
+    journal = Path(settings.RECORDS_ROOT) / session / "events.jsonl"
+    before = journal.read_bytes() if journal.is_file() else b""
+
+    try:
+        replay = h56bridge.evaluate(evidence_raw, request, settings.RECORDS_ROOT, session)
+    except Exception as error:  # noqa: BLE001 - a refusal is the finding, not a crash
+        code = getattr(error, "code", None) or type(error).__name__
+        print("REPLAY    REFUSED code=%s" % code)
+        print("REPLAY_STATE=REFUSED")
+        print("REPLAY_EXIT=%d" % EXIT_REPLAY)
+        return EXIT_REPLAY
+
+    after = journal.read_bytes() if journal.is_file() else b""
+    original = (result.get("reference") or {}).get("assessment_id")
+    same = replay["reference"]["assessment_id"] == original
+    if after == before and same:
+        state = "REUSED"
+    elif len(after.splitlines()) > len(before.splitlines()):
+        state = "RECOMPUTED"
+    else:
+        state = "DIFFERENT"
+
+    print("REPLAY    %s assessment=%s" % (
+        state, str(replay["reference"]["assessment_id"])[7:19]))
+    print("REPLAY_EVENTS_BEFORE=%d" % len(before.splitlines()))
+    print("REPLAY_EVENTS_AFTER=%d" % len(after.splitlines()))
+    print("REPLAY_JOURNAL_UNCHANGED=%s" % (after == before))
+    print("REPLAY_ASSESSMENT_SAME=%s" % same)
+    print("REPLAY_STATE=%s" % state)
+    print("REPLAY_EXIT=%d" % (EXIT_OK if state == "REUSED" else EXIT_REPLAY))
+    return EXIT_OK if state == "REUSED" else EXIT_REPLAY
+
+
+def recover_parser(sub):
+    parser = sub.add_parser(
+        "recover", help="classify the record store, or write recovery.json for one run")
+    parser.add_argument("--survey", action="store_true",
+                        help="classify every session and stop; writes nothing")
+    parser.add_argument("--session", default=None, help="oq_shop_20261103T171000Z")
+    parser.add_argument("--stamp", default=None, help="run stamp to place recovery.json in")
+    parser.add_argument("--business", default="shop")
+    parser.add_argument("--create-run", action="store_true",
+                        help="create the run directory if it is gone, and say so in the file")
+    return parser
+
+
+def recover_command(arguments):
+    """Two modes, both refusing to edit the record store.
+
+    `--survey` reads and classifies. `--session` copies one surviving verdict into a new
+    `recovery.json` beside its run. Neither mode deletes a claim, truncates a journal, or
+    writes a `result.json` that would read like a first-hand summary.
+    """
+    from . import recovery
+
+    if arguments.survey:
+        rows = recovery.survey(settings.RECORDS_ROOT)
+        print("%-18s %-11s %6s %9s %6s %8s" % (
+            "state", "session", "claims", "artifacts", "events", "journalB"))
+        print("-" * 66)
+        for row in rows:
+            print("%-18s %-11s %6d %9d %6d %8d" % (
+                row["state"], row["session"][-11:], row["claims"], row["artifacts"],
+                row["events"], row["journal_bytes"]))
+        degraded = [row for row in rows if row["state"] != recovery.HEALTHY]
+        print("-" * 66)
+        for row in degraded:
+            print("ADVICE %s: %s" % (row["session"], row["advice"]))
+        print("SURVEY_SESSIONS=%d" % len(rows))
+        print("SURVEY_HEALTHY=%d" % (len(rows) - len(degraded)))
+        print("SURVEY_DEGRADED=%d" % len(degraded))
+        print("RECOVER_EXIT=0")
+        return EXIT_OK
+
+    if not arguments.session or not arguments.stamp:
+        print("RECOVER   REFUSED code=RECOVER_ARGUMENTS (need --survey or --session+--stamp)")
+        print("RECOVER_EXIT=%d" % EXIT_RECOVERY)
+        return EXIT_RECOVERY
+
+    created = False
+    try:
+        directory = settings.existing_run_directory(arguments.stamp, arguments.business)
+    except settings.RunPathError as error:
+        if error.code != "RUN_DIRECTORY_MISSING" or not arguments.create_run:
+            print("RECOVER   REFUSED code=%s" % error.code)
+            print("RECOVER_EXIT=%d" % EXIT_RECOVERY)
+            return EXIT_RECOVERY
+        directory = settings.run_directory(arguments.stamp, arguments.business)
+        created = True
+
+    try:
+        document, target = recovery.restore(settings.RECORDS_ROOT, arguments.session, directory)
+    except recovery.RecoveryError as error:
+        print("RECOVER   REFUSED code=%s detail=%s" % (error.code, str(error).split(": ")[-1]))
+        print("RECOVER_EXIT=%d" % EXIT_RECOVERY)
+        return EXIT_RECOVERY
+
+    document["run_directory_created"] = created
+    target.write_bytes(hostproof.dumps(document).encode("utf-8"))
+    print("RECOVER   session=%s decision=%s calls=%d" % (
+        arguments.session, document["decision"], document["native_calls"]))
+    print("RECOVER_ORDER_RECOVERABLE=%s" % document["order_recoverable"])
+    print("RECOVER_RUN_CREATED=%s" % created)
+    print("RECOVER_EXIT=0")
+    return EXIT_OK
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="app.main", description="H56 PayPal submission package")
@@ -444,11 +597,17 @@ def main(argv=None):
     sub.add_parser("selfcheck", help="verify the package against its own identity record")
     evaluate_parser(sub)
     verify_parser(sub)
+    replay_parser(sub)
+    recover_parser(sub)
     arguments = parser.parse_args(argv)
     if arguments.command == "selfcheck":
         return selfcheck()
     if arguments.command == "verify":
         return verify_command(arguments)
+    if arguments.command == "replay":
+        return replay_command(arguments)
+    if arguments.command == "recover":
+        return recover_command(arguments)
     if arguments.command == "evaluate":
         return evaluate_command(arguments)
     return EXIT_USAGE

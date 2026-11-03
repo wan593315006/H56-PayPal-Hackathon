@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>H56 支付版治理 · 只读证据台</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#151a20; --panel2:#1b2129; --line:#2a323c;
+    --fg:#d7dde5; --dim:#8b97a6; --faint:#5d6874;
+    --ok:#3fb950; --bad:#f85149; --warn:#d29922; --accent:#58a6ff;
+    --mono:ui-monospace,"Cascadia Mono","Cascadia Code",Menlo,Consolas,"Courier New",monospace;
+    --sans:"Microsoft YaHei","PingFang SC","Hiragino Sans GB","Source Han Sans SC",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family:var(--sans); font-size:13px; line-height:1.55;
+  }
+  code,.mono,.num{font-family:var(--mono); font-variant-ligatures:none}
+  .wrap{max-width:1320px; margin:0 auto; padding:18px 20px 64px}
+
+  header.top{
+    display:flex; flex-wrap:wrap; align-items:baseline; gap:12px;
+    border-bottom:1px solid var(--line); padding-bottom:12px; margin-bottom:14px;
+  }
+  header.top h1{
+    font-size:17px; font-weight:600; letter-spacing:.02em; margin:0;
+  }
+  .badge-synth{
+    font-family:var(--mono); font-size:11px; letter-spacing:.06em;
+    color:#0f1216; background:var(--warn); border-radius:2px;
+    padding:2px 8px; font-weight:700; white-space:nowrap;
+  }
+  .spacer{flex:1}
+
+  .gate{
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+    background:var(--panel); border:1px solid var(--line); border-radius:4px;
+    padding:9px 12px; margin-bottom:16px;
+  }
+  .gate label{color:var(--dim); font-size:12px; white-space:nowrap}
+  .gate input{
+    font-family:var(--mono); font-size:12px; color:var(--fg);
+    background:#0b0e12; border:1px solid var(--line); border-radius:3px;
+    padding:5px 8px; width:340px; max-width:44vw;
+  }
+  .gate input:focus{outline:1px solid var(--accent); border-color:var(--accent)}
+  button{
+    font-family:var(--mono); font-size:12px; cursor:pointer;
+    background:var(--panel2); color:var(--fg);
+    border:1px solid var(--line); border-radius:3px; padding:5px 11px;
+  }
+  button:hover{border-color:var(--accent); color:#fff}
+  button:active{transform:translateY(1px)}
+  .status{font-family:var(--mono); font-size:12px; color:var(--dim)}
+  .status.ok{color:var(--ok)} .status.bad{color:var(--bad)}
+
+  section.blk{margin-bottom:22px}
+  section.blk > h2{
+    font-size:12px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--dim); margin:0 0 8px; display:flex; align-items:center; gap:10px;
+  }
+  section.blk > h2::after{content:""; flex:1; height:1px; background:var(--line)}
+  .hint{color:var(--faint); font-size:11.5px; margin:6px 0 0}
+
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:4px}
+  .scroll{overflow:auto; max-height:min(46vh,520px)}
+
+  table{width:100%; border-collapse:collapse; font-size:11.5px}
+  thead th{
+    position:sticky; top:0; z-index:1; text-align:left; font-weight:600;
+    color:var(--dim); background:var(--panel2);
+    border-bottom:1px solid var(--line); padding:6px 8px; white-space:nowrap;
+    font-size:10.5px; letter-spacing:.04em;
+  }
+  tbody td{border-bottom:1px solid #1e242c; padding:5px 8px; vertical-align:middle; white-space:nowrap}
+  tbody tr{cursor:pointer}
+  tbody tr:hover td{background:#1a212a}
+  tbody tr.sel td{background:#1d2733; box-shadow:inset 2px 0 0 var(--accent)}
+  tbody td.wrap-cell{white-space:normal}
+  tbody td.c-id{max-width:190px; overflow:hidden; text-overflow:ellipsis; font-size:11px}
+  .empty{padding:14px 12px; color:var(--faint); font-family:var(--mono); font-size:12px}
+
+  .tag{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.04em;
+    padding:1px 6px; border-radius:2px; border:1px solid var(--line); color:var(--dim);
+  }
+  .tag.ok{color:var(--ok); border-color:#22432b; background:#12251a}
+  .tag.bad{color:var(--bad); border-color:#4a2222; background:#2a1416}
+  .tag.na{color:var(--faint)}
+  .tag.feas{color:var(--ok); border-color:#22432b; background:#12251a}
+  .tag.block{color:var(--warn); border-color:#463a12; background:#241d09}
+
+  .bbox{display:inline-flex; gap:3px}
+  .bb{
+    font-family:var(--mono); font-size:10px; padding:0 4px; border-radius:2px;
+    border:1px solid var(--line); color:var(--dim); background:#0b0e12;
+  }
+  .bbox.clear .bb{color:var(--ok); border-color:#22432b; background:#101f16}
+  .bbox.breach .bb{color:var(--bad); border-color:#4a2222; background:#251316}
+
+  .kv{display:grid; grid-template-columns:172px minmax(0,1fr); gap:0}
+  .kv > div{padding:4px 10px; border-bottom:1px solid #1e242c; font-size:12px}
+  .kv > div.k{
+    color:var(--dim); background:#12171d;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .kv > div.v{font-family:var(--mono); word-break:break-all; white-space:normal; min-width:0}
+  .hash{cursor:pointer; color:var(--fg); border-bottom:1px dotted var(--faint)}
+  .hash:hover{color:var(--accent); border-bottom-color:var(--accent)}
+  .copy-note{color:var(--ok); font-size:10.5px; margin-left:6px}
+
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  @media (max-width:900px){
+    .cols{grid-template-columns:1fr}
+    .kv{grid-template-columns:minmax(0,1fr)}
+    .kv > div.k{border-bottom:none; padding-bottom:0; background:transparent; white-space:normal}
+    .kv > div.v{padding-top:0}
+  }
+  .sub{
+    font-family:var(--mono); font-size:11px; color:var(--dim);
+    padding:6px 10px; background:var(--panel2); border-bottom:1px solid var(--line);
+    letter-spacing:.04em;
+  }
+  .verify-note{
+    margin-top:10px; padding:8px 11px; border-left:2px solid var(--accent);
+    background:#101820; color:var(--dim); font-size:11.5px;
+  }
+  .verify-note code{color:var(--accent)}
+  footer{color:var(--faint); font-size:11px; font-family:var(--mono); border-top:1px solid var(--line); padding-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>H56 支付版治理 · 只读证据台</h1>
+    <span class="badge-synth">SYNTHETIC_ONLY · 不产生真实支付动作</span>
+    <span class="spacer"></span>
+    <span class="status" id="status">未载入</span>
+  </header>
+
+  <div class="gate">
+    <label for="token">RUN TOKEN</label>
+    <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴服务进程 stdout 里的 32 位 token">
+    <button id="load">载入</button>
+    <button id="refresh">刷新</button>
+    <button id="forget">清除</button>
+    <span class="status" id="gate-note">token 只存于本标签页 sessionStorage，不写入页面/源码/磁盘</span>
+  </div>
+
+  <section class="blk">
+    <h2>运行列表 · runs/</h2>
+    <div class="panel scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>时间戳</th><th>业务</th><th>判定</th><th>阶段</th>
+            <th>内核调用数</th><th>边界 A/E/B</th><th>绑定</th>
+          </tr>
+        </thead>
+        <tbody id="runs-body">
+          <tr><td class="empty" colspan="7">尚未载入。在上方填入 token 后点击「载入」。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">边界三布尔 = authority_granted / execution_permitted / business_action_observed，均为 false 即边界完整（绿色）。</p>
+  </section>
+
+  <section class="blk">
+    <h2>单次详情</h2>
+    <div class="panel" id="detail">
+      <div class="empty" id="detail-empty">点击运行列表中的任意一行。</div>
+    </div>
+  </section>
+
+  <section class="blk">
+    <h2>记录库 · records/</h2>
+    <div class="panel scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>session</th><th>assessment_id</th><th>判定</th>
+            <th>artifact 字节</th><th>事件条数</th><th>journal</th>
+          </tr>
+        </thead>
+        <tbody id="records-body">
+          <tr><td class="empty" colspan="6">尚未载入。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">journal 状态为 DAMAGED 表示 events.jsonl 存在不完整行（例如进程中断造成半行），页面照常展示其余记录。</p>
+  </section>
+
+  <footer>
+    只读视图：本页面不含任何「运行 / 重新评估 / 写入」能力，也不会创建、修改、删除 runs/ 或 records/ 下任何字节。
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var TOKEN_KEY = "h56.run.token";
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { runs: [], records: [], selected: null, token: "" };
+
+  function setStatus(text, kind){
+    var node = $("status");
+    node.textContent = text;
+    node.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function el(tag, cls, text){
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function short(value, n){
+    if (value === null || value === undefined) return "—";
+    var s = String(value);
+    return s.length > n ? s.slice(0, n) + "…" : s;
+  }
+
+  function copyable(value, label){
+    if (!value) return el("span", "mono", "—");
+    var span = el("span", "hash", label !== undefined ? label : short(value, 16));
+    span.title = "点击复制完整值：" + value;
+    span.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      copyText(String(value), span);
+    });
+    return span;
+  }
+
+  function copyText(text, anchor){
+    var done = function(){
+      var note = el("span", "copy-note", "已复制");
+      if (anchor && anchor.parentNode){
+        anchor.parentNode.insertBefore(note, anchor.nextSibling);
+        setTimeout(function(){ if (note.parentNode) note.parentNode.removeChild(note); }, 1200);
+      }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done, function(){ legacyCopy(text, done); });
+    } else {
+      legacyCopy(text, done);
+    }
+  }
+
+  function legacyCopy(text, done){
+    var area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "readonly");
+    area.style.position = "fixed";
+    area.style.top = "-1000px";
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand("copy"); done(); } catch (e) { /* 静默 */ }
+    document.body.removeChild(area);
+  }
+
+  function api(path){
+    return fetch(path, {
+      method: "GET",
+      headers: { "X-H56-Run-Token": state.token },
+      cache: "no-store",
+      credentials: "omit"
+    }).then(function(resp){
+      return resp.text().then(function(text){
+        var data = null;
+        try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+        if (!resp.ok){
+          var code = (data && data.error) ? data.error : ("HTTP_" + resp.status);
+          var err = new Error(code);
+          err.status = resp.status;
+          err.payload = data;
+          throw err;
+        }
+        return data;
+      });
+    });
+  }
+
+  function describeError(err){
+    if (err && err.status === 401) return "401 · token 未通过（检查是否粘贴完整，或服务已重启换了新 token）";
+    if (err && err.status === 403) return "403 · Host 被拒（必须用 http://127.0.0.1:<port>/ 打开，不能用 localhost）";
+    if (err && err.status === 404) return "404 · " + (err.message || "无此资源");
+    if (err && err.status) return String(err.status) + " · " + (err.message || "请求失败");
+    return "请求失败 · " + (err && err.message ? err.message : "网络错误");
+  }
+
+  // ---------------- 运行列表 ----------------
+  function decisionTag(value){
+    var text = (value === null || value === undefined) ? "—" : String(value);
+    var cls = "tag na";
+    if (text === "FEASIBLE") cls = "tag feas";
+    else if (text === "BLOCKED") cls = "tag block";
+    else if (text !== "—") cls = "tag";
+    return el("span", cls, text);
+  }
+
+  function boundaryBox(b){
+    var box = el("span", "bbox");
+    var flags = [
+      ["A", !!(b && b.authority_granted)],
+      ["E", !!(b && b.execution_permitted)],
+      ["B", !!(b && b.business_action_observed)]
+    ];
+    var breached = flags.some(function(pair){ return pair[1]; });
+    box.className = "bbox " + (breached ? "breach" : "clear");
+    flags.forEach(function(pair){
+      var chip = el("span", "bb", pair[0] + ":" + (pair[1] ? "T" : "F"));
+      chip.title = pair[0] === "A" ? "authority_granted"
+                 : pair[0] === "E" ? "execution_permitted"
+                 : "business_action_observed";
+      box.appendChild(chip);
+    });
+    return box;
+  }
+
+  function bindingTag(ok, present){
+    if (!present) return el("span", "tag na", "无 binding");
+    if (ok === true) return el("span", "tag ok", "OK");
+    if (ok === false) return el("span", "tag bad", "REJECTED");
+    return el("span", "tag na", "—");
+  }
+
+  function renderRuns(){
+    var body = $("runs-body");
+    body.innerHTML = "";
+    if (!state.runs.length){
+      var tr0 = el("tr");
+      var td0 = el("td", "empty", "runs/ 下没有可展示的目录。");
+      td0.colSpan = 7;
+      tr0.appendChild(td0);
+      body.appendChild(tr0);
+      return;
+    }
+    state.runs.forEach(function(run){
+      var tr = el("tr");
+      tr.dataset.stamp = run.stamp;
+      tr.dataset.business = run.business;
+      if (state.selected === run.stamp + "/" + run.business) tr.className = "sel";
+
+      var tdStamp = el("td", "mono", run.stamp);
+      var tdBiz = el("td", "mono", run.business);
+      var tdDec = el("td"); tdDec.appendChild(decisionTag(run.decision));
+      var tdStage = el("td", "mono", run.stage === null || run.stage === undefined ? "—" : run.stage);
+      var tdCalls = el("td", "mono", run.native_calls === null || run.native_calls === undefined ? "—" : run.native_calls);
+      var tdB = el("td"); tdB.appendChild(boundaryBox(run.boundary));
+      var tdBind = el("td"); tdBind.appendChild(bindingTag(run.binding_ok, run.has_binding));
+
+      [tdStamp, tdBiz, tdDec, tdStage, tdCalls, tdB, tdBind].forEach(function(td){ tr.appendChild(td); });
+      tr.addEventListener("click", function(){ selectRun(run); });
+      body.appendChild(tr);
+    });
+  }
+
+  // ---------------- 单次详情 ----------------
+  function kvRow(k, vNode){
+    var kd = el("div", "k", k);
+    var vd = el("div", "v");
+    if (typeof vNode === "string") vd.textContent = vNode;
+    else vd.appendChild(vNode);
+    return [kd, vd];
+  }
+
+  function block(title, rows){
+    var wrap = el("div", "panel");
+    wrap.appendChild(el("div", "sub", title));
+    var kv = el("div", "kv");
+    rows.forEach(function(pair){
+      var nodes = kvRow(pair[0], pair[1]);
+      kv.appendChild(nodes[0]);
+      kv.appendChild(nodes[1]);
+    });
+    wrap.appendChild(kv);
+    return wrap;
+  }
+
+  function str(value){
+    if (value === null || value === undefined || value === "") return "—";
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
+  }
+
+  function renderDetail(view){
+    var host = $("detail");
+    host.innerHTML = "";
+
+    var head = el("div", "sub",
+      "run · " + view.stamp + " / " + view.business +
+      "　|　文件：" + (view.files && view.files.length ? view.files.join(", ") : "（无）"));
+    host.appendChild(head);
+
+    var result = view.result || {};
+    var order = result.order || {};
+    var policy = result.policy || {};
+    var reference = result.reference || (view.binding && view.binding.reference) || {};
+
+    var amount = "—";
+    if (order.amount_minor !== undefined && order.amount_minor !== null){
+      amount = String(order.amount_minor) + " minor　" + str(order.currency);
+    }
+
+    var orderBlock = block("订单 order", [
+      ["offer_id", str(order.offer_id)],
+      ["order_id", str(order.order_id)],
+      ["amount_minor", amount],
+      ["payee", str(order.payee)],
+      ["amount_source", str(order.amount_source)]
+    ]);
+
+    var codeList = [];
+    if (Array.isArray(policy.reason_codes)) codeList = codeList.concat(policy.reason_codes);
+    if (Array.isArray(result.reason_codes)) codeList = codeList.concat(result.reason_codes);
+    var uniq = [];
+    codeList.forEach(function(c){ if (uniq.indexOf(c) === -1) uniq.push(c); });
+
+    var policyRows = [
+      ["policy.decision", str(policy.decision)],
+      ["policy_state", str(result.policy_state)],
+      ["evidence_state", str(result.evidence_state)],
+      ["reason_codes", uniq.length ? uniq.join("　") : "（空）"]
+    ];
+    if (Array.isArray(result.rules)) policyRows.push(["rules", result.rules.join("　")]);
+    policyRows.push(["layer", str(result.layer)]);
+    policyRows.push(["stage", str(result.stage)]);
+    policyRows.push(["native_calls / returned", str(result.native_calls) + " / " + str(result.native_returned)]);
+    policyRows.push(["business_action_calls", str(result.business_action_calls)]);
+    policyRows.push(["authority_granted", str(result.authority_granted)]);
+    policyRows.push(["execution_permitted", str(result.execution_permitted)]);
+    var policyBlock = block("策略 policy", policyRows);
+
+    var refRows = [
+      ["assessment_id", copyable(reference.assessment_id)],
+      ["decision_id", copyable(reference.decision_id)],
+      ["semantic_sha256", copyable(reference.semantic_sha256)],
+      ["artifact_sha256", copyable(reference.artifact_sha256)],
+      ["journal_event_sha256", copyable(reference.journal_event_sha256)]
+    ];
+    var refBlock = block("reference 五哈希（截断 16 位，点击复制全值）", refRows);
+
+    var check = view.binding_check || {};
+    var bindRows;
+    if (!check.present){
+      bindRows = [["binding.json", str(check.note || "不存在")]];
+    } else {
+      bindRows = [
+        ["binding.json", "存在"],
+        ["binding_sha256 自称", copyable(check.binding_sha256_claimed)],
+        ["canonical 复算", copyable(check.binding_sha256_computed)],
+        ["binding 自洽", check.binding_sha256_match ? "MATCH" : "MISMATCH"],
+        ["evidence_sha256 自称", copyable(check.evidence_sha256_claimed)],
+        ["evidence.json 实测", copyable(check.evidence_sha256_file)],
+        ["evidence 字节", check.evidence_sha256_match ? "MATCH" : "MISMATCH"],
+        ["结论", check.ok ? "OK · 字节级自洽" : "REJECTED · 字节级不自洽"]
+      ];
+    }
+    var bindBlock = block("binding 字节级自洽", bindRows);
+
+    var cols = el("div", "cols");
+    cols.appendChild(orderBlock);
+    cols.appendChild(policyBlock);
+    host.appendChild(cols);
+
+    var cols2 = el("div", "cols");
+    cols2.style.marginTop = "14px";
+    cols2.appendChild(refBlock);
+    cols2.appendChild(bindBlock);
+    host.appendChild(cols2);
+
+    if (view.unreadable && view.unreadable.length){
+      var warn = el("div", "verify-note");
+      warn.textContent = "不可读文件：" + view.unreadable.map(function(item){
+        return item.file + "(" + item.state + ")";
+      }).join("，");
+      host.appendChild(warn);
+    }
+
+    var note = el("div", "verify-note");
+    note.appendChild(document.createTextNode("本页只做字节级自洽（canonical JSON + sha256 比对）。深度校验（订单/内核语义链重放）请运行 "));
+    var cmd = el("code", null, "python -B -m app.main verify --stamp " + view.stamp + " --business " + view.business);
+    note.appendChild(cmd);
+    note.appendChild(document.createTextNode("。"));
+    host.appendChild(note);
+  }
+
+  function renderDetailError(message){
+    var host = $("detail");
+    host.innerHTML = "";
+    var box = el("div", "empty", message);
+    host.appendChild(box);
+  }
+
+  function selectRun(run){
+    state.selected = run.stamp + "/" + run.business;
+    renderRuns();
+    renderDetailError("读取中…");
+    api("/api/run?stamp=" + encodeURIComponent(run.stamp) +
+        "&business=" + encodeURIComponent(run.business))
+      .then(function(view){
+        if (state.selected !== run.stamp + "/" + run.business) return;
+        renderDetail(view);
+      })
+      .catch(function(err){
+        renderDetailError(describeError(err));
+        setStatus(describeError(err), "bad");
+      });
+  }
+
+  // ---------------- 记录库 ----------------
+  function journalTag(value){
+    var text = value || "—";
+    var cls = "tag ";
+    if (text === "OK") cls += "ok";
+    else if (text === "DAMAGED") cls += "bad";
+    else cls += "na";
+    return el("span", cls, text);
+  }
+
+  function renderRecords(){
+    var body = $("records-body");
+    body.innerHTML = "";
+    if (!state.records.length){
+      var tr0 = el("tr");
+      var td0 = el("td", "empty", "records/ 下没有可展示的 session。");
+      td0.colSpan = 6;
+      tr0.appendChild(td0);
+      body.appendChild(tr0);
+      return;
+    }
+    state.records.forEach(function(rec){
+      var tr = el("tr");
+      tr.style.cursor = "default";
+      tr.appendChild(el("td", "mono", rec.session));
+      var tdA = el("td", "c-id mono");
+      tdA.appendChild(copyable(rec.assessment_id, rec.assessment_id ? short(rec.assessment_id, 20) : "—"));
+      tr.appendChild(tdA);
+      var tdD = el("td"); tdD.appendChild(decisionTag(rec.decision));
+      tr.appendChild(tdD);
+      tr.appendChild(el("td", "mono", rec.artifact_bytes));
+      tr.appendChild(el("td", "mono", rec.events));
+      var tdJ = el("td"); tdJ.appendChild(journalTag(rec.journal_state));
+      tr.appendChild(tdJ);
+      body.appendChild(tr);
+    });
+  }
+
+  // ---------------- 载入 ----------------
+  function loadAll(){
+    if (!state.token){
+      setStatus("token 为空", "bad");
+      return;
+    }
+    setStatus("载入中…");
+    api("/api/runs").then(function(runs){
+      state.runs = Array.isArray(runs) ? runs : [];
+      renderRuns();
+      return api("/api/records");
+    }).then(function(records){
+      state.records = Array.isArray(records) ? records : [];
+      renderRecords();
+      var damaged = state.records.filter(function(r){ return r.journal_state !== "OK"; }).length;
+      setStatus("已载入 · run " + state.runs.length + " 条 · record " + state.records.length +
+                " 条" + (damaged ? " · journal 异常 " + damaged : ""), "ok");
+    }).catch(function(err){
+      setStatus(describeError(err), "bad");
+      var msg = describeError(err);
+      $("runs-body").innerHTML = "";
+      var tr = el("tr");
+      var td = el("td", "empty", msg);
+      td.colSpan = 7;
+      tr.appendChild(td);
+      $("runs-body").appendChild(tr);
+    });
+  }
+
+  // ---------------- 初始化 ----------------
+  function boot(){
+    var saved = "";
+    try { saved = sessionStorage.getItem(TOKEN_KEY) || ""; } catch (e) { saved = ""; }
+    if (saved){
+      $("token").value = saved;
+      state.token = saved;
+      loadAll();
+    }
+
+    $("token").addEventListener("input", function(){
+      state.token = this.value.trim();
+    });
+    $("token").addEventListener("keydown", function(ev){
+      if (ev.key === "Enter") loadAll();
+    });
+
+    $("load").addEventListener("click", function(){
+      state.token = $("token").value.trim();
+      try {
+        if (state.token) sessionStorage.setItem(TOKEN_KEY, state.token);
+        else sessionStorage.removeItem(TOKEN_KEY);
+      } catch (e) { /* 隐私模式忽略 */ }
+      loadAll();
+    });
+
+    $("refresh").addEventListener("click", function(){
+      state.token = $("token").value.trim();
+      loadAll();
+    });
+
+    $("forget").addEventListener("click", function(){
+      try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* 忽略 */ }
+      $("token").value = "";
+      state.token = "";
+      state.runs = [];
+      state.records = [];
+      state.selected = null;
+      renderRuns();
+      renderRecords();
+      renderDetailError("点击运行列表中的任意一行。");
+      setStatus("已清除 token", "");
+    });
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

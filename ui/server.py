@@ -1,0 +1,580 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""H56 支付版治理 · 只读证据台 —— 本地展示服务。
+
+设计约束（不可放宽）：
+  * 纯标准库，不引用交付包的应用层与内核层模块，不联网。
+  * 纯只读：只做 open/read，从不写 runs/ 或 records/，从不触发新的评估。
+  * 三道闸：Host 精确匹配、一次性 token、POST 空体。
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import secrets
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+RUNS_DIR = ROOT / "runs"
+RECORDS_DIR = ROOT / "records"
+INDEX_FILE = HERE / "index.html"
+
+STAMP_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z\Z")
+BUSINESS_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}\Z")
+
+MAX_POST_BODY = 65536
+TOKEN_HEADER = "X-H56-Run-Token"
+
+# 只读视图里允许暴露的 run 文件（白名单，不做目录拼接之外的探索）
+RUN_FILES = ("request.json", "evidence.json", "result.json", "binding.json")
+
+
+# --------------------------------------------------------------------------
+# 基础工具（全部只读）
+# --------------------------------------------------------------------------
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def canonical_bytes(obj) -> bytes:
+    """canonical JSON：sort_keys + 紧凑分隔符 + 不转义非 ASCII。
+
+    这是 UI 侧独立实现的字节级口径，用来复核 binding.json 自洽；
+    语义链复核属于 app.main verify 的职责，这里不做。
+    """
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False).encode("utf-8")
+
+
+def read_json(path: Path):
+    """返回 (对象, 错误码)。文件缺失或不是合法 JSON 时对象为 None。"""
+    if not path.is_file():
+        return None, "MISSING"
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None, "UNREADABLE"
+    try:
+        return json.loads(raw.decode("utf-8-sig")), None
+    except (UnicodeDecodeError, ValueError):
+        return None, "INVALID_JSON"
+
+
+def file_sha256(path: Path):
+    if not path.is_file():
+        return None
+    try:
+        return sha256_bytes(path.read_bytes())
+    except OSError:
+        return None
+
+
+def as_bool(value) -> bool:
+    return value is True
+
+
+# --------------------------------------------------------------------------
+# 只读数据视图
+# --------------------------------------------------------------------------
+
+def list_run_dirs():
+    """枚举 runs/<stamp>_<business>/，目录名不合规的一律跳过。"""
+    found = []
+    if not RUNS_DIR.is_dir():
+        return found
+    for entry in sorted(RUNS_DIR.iterdir(), key=lambda p: p.name):
+        if not entry.is_dir():
+            continue
+        stamp, sep, business = entry.name.partition("_")
+        if not sep or not STAMP_RE.match(stamp) or not BUSINESS_RE.match(business):
+            continue
+        found.append((stamp, business, entry))
+    return found
+
+
+def check_binding(run_dir: Path):
+    """字节级自洽复核，不重算语义链。"""
+    binding_path = run_dir / "binding.json"
+    if not binding_path.is_file():
+        return {
+            "present": False,
+            "ok": None,
+            "binding_sha256_match": None,
+            "evidence_sha256_match": None,
+            "note": "该 run 无 binding.json（未进入绑定阶段）",
+        }
+
+    binding, err = read_json(binding_path)
+    if not isinstance(binding, dict):
+        return {
+            "present": True,
+            "ok": False,
+            "binding_sha256_match": False,
+            "evidence_sha256_match": False,
+            "note": "binding.json 不可解析：%s" % err,
+        }
+
+    claimed = binding.get("binding_sha256")
+    body = {k: v for k, v in binding.items() if k != "binding_sha256"}
+    computed = sha256_bytes(canonical_bytes(body))
+    binding_match = isinstance(claimed, str) and claimed == computed
+
+    evidence_claimed = binding.get("evidence_sha256")
+    evidence_actual = file_sha256(run_dir / "evidence.json")
+    if evidence_actual is None:
+        evidence_match = False
+        evidence_note = "evidence.json 缺失，无法复核"
+    else:
+        evidence_match = isinstance(evidence_claimed, str) and evidence_claimed == evidence_actual
+        evidence_note = "evidence_sha256 与 evidence.json 字节一致" if evidence_match \
+            else "evidence_sha256 与 evidence.json 字节不一致"
+
+    ok = bool(binding_match and evidence_match)
+    return {
+        "present": True,
+        "ok": ok,
+        "binding_sha256_match": bool(binding_match),
+        "evidence_sha256_match": bool(evidence_match),
+        "binding_sha256_claimed": claimed,
+        "binding_sha256_computed": computed,
+        "evidence_sha256_claimed": evidence_claimed,
+        "evidence_sha256_file": evidence_actual,
+        "note": evidence_note,
+    }
+
+
+def summarize_run(stamp: str, business: str, run_dir: Path):
+    result, result_err = read_json(run_dir / "result.json")
+    if not isinstance(result, dict):
+        result = {}
+
+    binding = check_binding(run_dir)
+
+    files = []
+    try:
+        for child in sorted(run_dir.iterdir(), key=lambda p: p.name):
+            if child.is_file() and child.name in RUN_FILES:
+                files.append(child.name)
+    except OSError:
+        files = []
+
+    business_action_calls = result.get("business_action_calls")
+    try:
+        business_action_observed = int(business_action_calls) > 0
+    except (TypeError, ValueError):
+        business_action_observed = False
+
+    return {
+        "stamp": stamp,
+        "business": business,
+        "decision": result.get("decision"),
+        "stage": result.get("stage"),
+        "native_calls": result.get("native_calls"),
+        "boundary": {
+            "authority_granted": as_bool(result.get("authority_granted")),
+            "execution_permitted": as_bool(result.get("execution_permitted")),
+            "business_action_observed": business_action_observed,
+        },
+        "has_binding": binding["present"],
+        "files": files,
+        "binding_ok": binding["ok"],
+        "result_state": "OK" if result_err is None else result_err,
+    }
+
+
+def api_runs():
+    return [summarize_run(stamp, business, run_dir)
+            for stamp, business, run_dir in list_run_dirs()]
+
+
+def api_run(stamp: str, business: str):
+    run_dir = RUNS_DIR / ("%s_%s" % (stamp, business))
+    if not run_dir.is_dir():
+        return None
+
+    view = {
+        "stamp": stamp,
+        "business": business,
+        "order": None,
+        "policy": None,
+        "reference": None,
+        "result": None,
+        "request": None,
+        "evidence": None,
+        "binding": None,
+        "binding_check": check_binding(run_dir),
+        "unreadable": [],
+    }
+    for key, filename in (("result", "result.json"),
+                          ("request", "request.json"),
+                          ("evidence", "evidence.json"),
+                          ("binding", "binding.json")):
+        obj, err = read_json(run_dir / filename)
+        view[key] = obj
+        if err is not None:
+            view["unreadable"].append({"file": filename, "state": err})
+
+    view.update(summarize_run(stamp, business, run_dir))
+
+    # 把 order / policy / reference 提到顶层，方便前端直接用；
+    # reference 在业务策略拦下的 run 里只存在于 binding.json。
+    result = view.get("result") if isinstance(view.get("result"), dict) else {}
+    binding = view.get("binding") if isinstance(view.get("binding"), dict) else {}
+    view["order"] = result.get("order") or binding.get("order")
+    view["policy"] = result.get("policy") or binding.get("policy")
+    view["reference"] = result.get("reference") or binding.get("reference")
+    return view
+
+
+def split_session(session: str):
+    """oq_<business>_<stamp> -> (business, stamp)；不合规返回 (None, None)。"""
+    head, sep, tail = session.rpartition("_")
+    if not sep or not STAMP_RE.match(tail):
+        return None, None
+    _, _, business = head.partition("_")
+    if not business or not BUSINESS_RE.match(business):
+        return business or None, tail
+    return business, tail
+
+
+def parse_journal(path: Path):
+    """逐行解析 events.jsonl。末行不是完整 JSON 时标 DAMAGED，绝不抛异常。"""
+    if not path.is_file():
+        return {"journal_state": "MISSING", "events": 0, "damaged_line": None}
+
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return {"journal_state": "UNREADABLE", "events": 0, "damaged_line": None}
+
+    lines = raw.split(b"\n")
+    if lines and lines[-1] == b"":
+        lines.pop()
+
+    events = 0
+    for index, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            json.loads(line.decode("utf-8-sig"))
+        except (UnicodeDecodeError, ValueError):
+            return {"journal_state": "DAMAGED", "events": events, "damaged_line": index}
+        events += 1
+
+    return {"journal_state": "OK", "events": events, "damaged_line": None}
+
+
+def decision_index():
+    """stamp/business -> decision，用于给 record 补判定，缺失则留空。"""
+    index = {}
+    for stamp, business, run_dir in list_run_dirs():
+        result, _ = read_json(run_dir / "result.json")
+        if isinstance(result, dict):
+            index[(stamp, business)] = result.get("decision")
+    return index
+
+
+def api_records():
+    decisions = decision_index()
+    records = []
+    if not RECORDS_DIR.is_dir():
+        return records
+
+    for entry in sorted(RECORDS_DIR.iterdir(), key=lambda p: p.name):
+        if not entry.is_dir():
+            continue
+        session = entry.name
+        business, stamp = split_session(session)
+
+        journal = parse_journal(entry / "events.jsonl")
+
+        artifacts_dir = entry / "artifacts"
+        artifact_files = []
+        if artifacts_dir.is_dir():
+            try:
+                artifact_files = sorted(p for p in artifacts_dir.iterdir() if p.is_file())
+            except OSError:
+                artifact_files = []
+        artifact_bytes = 0
+        for path in artifact_files:
+            try:
+                artifact_bytes += path.stat().st_size
+            except OSError:
+                pass
+
+        assessment_id = None
+        artifact_doc = None
+        if artifact_files:
+            artifact_doc, _ = read_json(artifact_files[0])
+        if isinstance(artifact_doc, dict):
+            assessment_id = artifact_doc.get("assessment_id")
+        if not assessment_id and artifact_files:
+            stem = artifact_files[0].stem
+            if len(stem) == 64:
+                assessment_id = "ASSESS:" + stem
+
+        decision = decisions.get((stamp, business)) if stamp else None
+        if decision is None and stamp:
+            for (run_stamp, _run_business), value in decisions.items():
+                if run_stamp == stamp:
+                    decision = value
+                    break
+
+        records.append({
+            "session": session,
+            "assessment_id": assessment_id,
+            "decision": decision,
+            "artifact_bytes": artifact_bytes,
+            "artifact_count": len(artifact_files),
+            "events": journal["events"],
+            "journal_state": journal["journal_state"],
+            "journal_damaged_line": journal["damaged_line"],
+        })
+
+    return records
+
+
+# --------------------------------------------------------------------------
+# HTTP 层
+# --------------------------------------------------------------------------
+
+ERROR_TEXT = {
+    "HOST_NOT_ALLOWED": "Host 头必须精确为 127.0.0.1:<port>，不接受 localhost 及其它别名。",
+    "TOKEN_REQUIRED": "缺少或错误的 " + TOKEN_HEADER + " 头。token 在服务进程 stdout 里。",
+    "METHOD_NOT_ALLOWED": "/api/* 只接受 GET 与 POST。",
+    "BODY_NOT_EMPTY": "POST 体必须是空对象 {}。",
+    "BAD_PARAM": "stamp/business 未通过白名单校验。",
+    "RUN_NOT_FOUND": "该 run 目录不存在。",
+    "NOT_FOUND": "无此路由。",
+    "INTERNAL_ERROR": "服务端读取失败，详情见服务进程 stderr。",
+}
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "H56ReadOnlyUI/1.0"
+    sys_version = ""
+    protocol_version = "HTTP/1.1"
+
+    # --- 统一日志：只到 stderr，不落盘 ---
+    def log_message(self, fmt, *args):
+        sys.stderr.write("[h56-ui] %s %s\n" % (self.log_date_time_string(), fmt % args))
+
+    # --- 输出 ---
+    def _send(self, status, payload, content_type, extra_headers=None):
+        if isinstance(payload, (dict, list)):
+            body = json.dumps(payload, ensure_ascii=False,
+                              separators=(",", ":")).encode("utf-8")
+        elif isinstance(payload, str):
+            body = payload.encode("utf-8")
+        else:
+            body = payload
+
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        if self.command != "HEAD":
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    def _error(self, status, code, extra_headers=None):
+        self._send(status, {"error": code, "message": ERROR_TEXT.get(code, "")},
+                   "application/json; charset=utf-8", extra_headers)
+
+    # --- 闸门 ---
+    def _host_ok(self):
+        expected = "127.0.0.1:%d" % self.server.server_address[1]
+        return (self.headers.get("Host") or "").strip() == expected
+
+    def _token_ok(self):
+        supplied = self.headers.get(TOKEN_HEADER)
+        if not isinstance(supplied, str) or not supplied:
+            return False
+        return secrets.compare_digest(supplied, self.server.run_token)
+
+    def _read_body(self):
+        """返回 (bytes, 是否读取成功)。超长视为非法并断开连接。"""
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            return b"", True
+        try:
+            length = int(raw_length)
+        except (TypeError, ValueError):
+            return b"", False
+        if length < 0 or length > MAX_POST_BODY:
+            return b"", False
+        if length == 0:
+            return b"", True
+        try:
+            return self.rfile.read(length), True
+        except OSError:
+            return b"", False
+
+    def _body_is_empty_object(self):
+        body, read_ok = self._read_body()
+        if not read_ok:
+            return False
+        return body.strip() == b"{}"
+
+    # --- 路由分发 ---
+    def do_GET(self):
+        self._dispatch("GET")
+
+    def do_POST(self):
+        self._dispatch("POST")
+
+    def do_PUT(self):
+        self._dispatch("PUT")
+
+    def do_DELETE(self):
+        self._dispatch("DELETE")
+
+    def do_PATCH(self):
+        self._dispatch("PATCH")
+
+    def do_HEAD(self):
+        self._dispatch("HEAD")
+
+    def do_OPTIONS(self):
+        self._dispatch("OPTIONS")
+
+    def _dispatch(self, method):
+        try:
+            self._route(method)
+        except Exception:  # 绝不把 traceback 写进响应体
+            sys.stderr.write("[h56-ui] internal error on %s %s\n"
+                             % (method, urlparse(self.path).path))
+            try:
+                self._send(500, {"error": "INTERNAL_ERROR",
+                                 "message": ERROR_TEXT["INTERNAL_ERROR"]},
+                           "application/json; charset=utf-8",
+                           {"Connection": "close"})
+            except Exception:
+                pass
+
+    def _route(self, method):
+        # 闸一：Host 精确匹配（对所有请求生效，含 "/"）
+        if not self._host_ok():
+            self._error(403, "HOST_NOT_ALLOWED", {"Connection": "close"})
+            return
+
+        path = urlparse(self.path).path
+        is_api = path == "/api" or path.startswith("/api/")
+
+        if not is_api:
+            if method != "GET":
+                self._error(405, "METHOD_NOT_ALLOWED", {"Allow": "GET"})
+                return
+            if path not in ("/", "/index.html"):
+                self._error(404, "NOT_FOUND")
+                return
+            try:
+                html = INDEX_FILE.read_bytes()
+            except OSError:
+                self._error(500, "INTERNAL_ERROR")
+                return
+            self._send(200, html, "text/html; charset=utf-8")
+            return
+
+        # /api/*：只接受 GET / POST
+        if method not in ("GET", "POST"):
+            self._error(405, "METHOD_NOT_ALLOWED", {"Allow": "GET, POST"})
+            return
+
+        # 闸二：一次性 token
+        if not self._token_ok():
+            self._error(401, "TOKEN_REQUIRED")
+            return
+
+        # 闸三：POST 体必须是 {}
+        if method == "POST" and not self._body_is_empty_object():
+            self._error(400, "BODY_NOT_EMPTY", {"Connection": "close"})
+            return
+
+        if path == "/api/runs":
+            self._send(200, api_runs(), "application/json; charset=utf-8")
+            return
+
+        if path == "/api/records":
+            self._send(200, api_records(), "application/json; charset=utf-8")
+            return
+
+        if path == "/api/run":
+            query = parse_qs(urlparse(self.path).query, keep_blank_values=True)
+            stamp = (query.get("stamp") or [""])[0].strip()
+            business = (query.get("business") or [""])[0].strip()
+            if not STAMP_RE.match(stamp) or not BUSINESS_RE.match(business):
+                self._error(400, "BAD_PARAM")
+                return
+            view = api_run(stamp, business)
+            if view is None:
+                self._error(404, "RUN_NOT_FOUND")
+                return
+            self._send(200, view, "application/json; charset=utf-8")
+            return
+
+        self._error(404, "NOT_FOUND")
+
+
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = False
+
+    def __init__(self, address, handler, run_token):
+        self.run_token = run_token
+        super().__init__(address, handler)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="H56 支付版治理 · 只读证据台（不触发任何评估）")
+    parser.add_argument("--port", type=int, default=8848,
+                        help="监听端口，默认 8848")
+    args = parser.parse_args(argv)
+
+    if not (0 < args.port < 65536):
+        parser.error("--port 必须在 1..65535 之间")
+
+    token = secrets.token_hex(16)
+    try:
+        httpd = Server(("127.0.0.1", args.port), Handler, token)
+    except OSError as exc:
+        sys.stderr.write("[h56-ui] 端口 %d 不可用：%s\n" % (args.port, exc))
+        return 2
+
+    port = httpd.server_address[1]
+    out = sys.stdout
+    out.write("H56 只读证据台已启动\n")
+    out.write("  URL   : http://127.0.0.1:%d/\n" % port)
+    out.write("  TOKEN : %s\n" % token)
+    out.write("  头名  : %s\n" % TOKEN_HEADER)
+    out.write("  只读  : 不写 runs/ 与 records/，不触发评估；Ctrl+C 结束\n")
+    out.flush()
+
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        out.write("\n[h56-ui] 收到中断，退出。\n")
+        out.flush()
+    finally:
+        httpd.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
