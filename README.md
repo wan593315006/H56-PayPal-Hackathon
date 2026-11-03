@@ -42,6 +42,32 @@ It prints one line per check and exits 0 only if all of them pass:
 5. the four native cores import from pinned source bytes, with no cached bytecode;
 6. no byte cache was created while running.
 
+## Run one offline chain
+
+```
+python -B -m app.main evaluate --offer-id S-C01 --order-id O-DEMO
+python -B -m app.main verify   --stamp 20261103T171000Z --business shop
+```
+
+`evaluate` walks one end-to-end run: catalogue, business policy, host-evidence envelope,
+the four cores, and a binding record. `verify` re-checks that binding from the bytes on
+disk, without asking the kernel to decide again, and exits 5 if any link is broken.
+
+Two properties are worth stating because they are easy to assume and were once missing:
+
+* **The catalogue is the price, not a budget.** R4 requires the order amount to equal the
+  offer price. The per-order limit is an upper bound; an amount under it is not thereby
+  correct. `--amount-minor` is therefore a value to be checked, and an order that omits it
+  takes the catalogue price with `amount_source=CATALOGUE`.
+* **The order is bound to the assessment, not attached to it.** The order's digest is
+  embedded in `request_id`, and the kernel derives `assessment_id` from the digest of the
+  request. Editing the order, swapping the proposal, or pairing a new order with an older
+  assessment all break that chain and are refused by `verify`.
+
+`--as-of` and `--host-key` pin the snapshot moment and the logical host. They exist for
+controlled comparisons: with both pinned, two runs differ in one evidence field and in
+nothing else.
+
 ## Offline and real mode
 
 Offline evaluation is self-contained: it takes a request and an evidence envelope, runs
