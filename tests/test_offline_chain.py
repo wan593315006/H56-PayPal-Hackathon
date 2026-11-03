@@ -37,6 +37,16 @@ ALLOWED_IMPORTS = frozenset((
     "subprocess", "sys", "tempfile", "unittest", "app", "offline_qualification_v1",
 ))
 
+# The package was offline until P3. Rather than widening the set above -- which would let
+# any module in `app/` open a socket and leave nothing to notice -- the network capability
+# is confined to one file, and the confinement is what the tests below assert.
+NETWORK_IMPORTS = frozenset(("base64", "socket", "urllib"))
+NETWORK_MODULE = "sandbox.py"
+SANDBOX_IMPORTS = ALLOWED_IMPORTS | NETWORK_IMPORTS
+# Only the command layer may reach the network module: a second importer would be a second
+# place where an order can be placed.
+SANDBOX_CALLERS = frozenset(("main.py",))
+
 
 def names_for(tag):
     return h56bridge.identifiers(BUSINESS, tag)
@@ -247,20 +257,51 @@ class ChainTest(unittest.TestCase):
         self.assertEqual(record["c2_context"]["evidence_state"], "INSUFFICIENT")
 
     # G1-7 ---------------------------------------------------------------------------
+    def _imports(self, path):
+        """Absolute import roots: the shape the original gate was written against."""
+        found = set()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    found.add(alias.name.split(".", 1)[0])
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                found.add(node.module.split(".", 1)[0])
+        return found
+
+    def _siblings(self, path):
+        """Sibling modules pulled in with `from . import x` -- a relative import has no root."""
+        found = set()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.level == 1 and not node.module:
+                for alias in node.names:
+                    found.add(alias.name.split(".", 1)[0])
+        return found
+
     def test_app_imports_only_the_standard_library_and_the_kernel(self):
+        """Every module keeps the offline set; the one network module gets the extra trio."""
         offenders = {}
         for path in sorted((ROOT / "app").glob("*.py")):
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        root = alias.name.split(".", 1)[0]
-                        if root not in ALLOWED_IMPORTS:
-                            offenders.setdefault(root, set()).add(path.name)
-                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                    root = node.module.split(".", 1)[0]
-                    if root not in ALLOWED_IMPORTS:
-                        offenders.setdefault(root, set()).add(path.name)
+            allowed = SANDBOX_IMPORTS if path.name == NETWORK_MODULE else ALLOWED_IMPORTS
+            for root in sorted(self._imports(path)):
+                if root not in allowed:
+                    offenders.setdefault(root, set()).add(path.name)
         self.assertEqual(offenders, {})
+
+    def test_only_one_module_can_reach_the_network(self):
+        """The trio is confined to `sandbox.py`; elsewhere it is still a defect."""
+        spread = {}
+        for path in sorted((ROOT / "app").glob("*.py")):
+            if path.name == NETWORK_MODULE:
+                continue
+            for root in sorted(self._imports(path) & NETWORK_IMPORTS):
+                spread.setdefault(root, set()).add(path.name)
+        self.assertEqual(spread, {})
+
+    def test_only_the_command_layer_imports_the_network_module(self):
+        """`main.py` wires the command; nothing else may start an order."""
+        callers = {path.name for path in sorted((ROOT / "app").glob("*.py"))
+                   if path.name != NETWORK_MODULE and "sandbox" in self._siblings(path)}
+        self.assertEqual(callers, set(SANDBOX_CALLERS))
 
 
 if __name__ == "__main__":

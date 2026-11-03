@@ -216,6 +216,7 @@ EXIT_OK, EXIT_SELFCHECK, EXIT_USAGE, EXIT_BLOCKED, EXIT_KERNEL = 0, 1, 2, 3, 4
 EXIT_BINDING = 5
 EXIT_REPLAY = 6
 EXIT_RECOVERY = 7
+EXIT_SANDBOX = 8
 
 
 def build_order(offer_id, offer, amount_minor=None, currency=None, payee=None):
@@ -607,6 +608,192 @@ def recover_command(arguments):
     return EXIT_OK
 
 
+def sandbox_parser(sub):
+    parser = sub.add_parser(
+        "sandbox", help="PayPal Sandbox order: plan, create, status, capture")
+    parser.add_argument("--step", required=True, choices=("plan", "create", "status", "capture"))
+    parser.add_argument("--offer-id", default="S-C01")
+    parser.add_argument("--payee-email", default=None,
+                        help="the sandbox business account the money must reach")
+    parser.add_argument("--return-url", default="https://example.com/h56/sandbox/return")
+    parser.add_argument("--cancel-url", default="https://example.com/h56/sandbox/cancel")
+    parser.add_argument("--order-id", default=None,
+                        help="the PayPal order id (needed by status and capture)")
+    parser.add_argument("--stamp", default=None,
+                        help="same stamp for create and capture; defaults to now")
+    parser.add_argument("--business", default="shop")
+    parser.add_argument("--decision", default=None,
+                        help="the governance verdict, recorded beside the state and never "
+                             "used in place of the buyer's approval")
+    return parser
+
+
+def _sandbox_directory(stamp, business, create):
+    """A run directory is created once and then only reopened -- never reused silently."""
+    if create:
+        return settings.run_directory(stamp, business)
+    return settings.existing_run_directory(stamp, business)
+
+
+def _sandbox_write(directory, name, document):
+    target = directory / "paypal"
+    target.mkdir(exist_ok=True)
+    path = target / name
+    path.write_bytes(hostproof.dumps(document).encode("utf-8"))
+    return path
+
+
+def sandbox_command(arguments):
+    """Four steps, one round trip, and one rule that is not negotiable.
+
+    `plan` reads nothing. `create` needs credentials. `status` and `capture` need an order id.
+    `capture` refuses unless PayPal reports the order APPROVED: the H56 verdict, if given,
+    is written into the record beside that state and is not consulted when deciding.
+    """
+    from . import policy, sandbox
+
+    catalogue = policy.load_catalog()
+    offer = next((o for o in catalogue["offers"] if o["offer_id"] == arguments.offer_id), None)
+    if offer is None:
+        print("SANDBOX   REFUSED code=OFFER_UNKNOWN detail=%s" % arguments.offer_id)
+        print("SANDBOX_EXIT=%d" % EXIT_USAGE)
+        return EXIT_USAGE
+    order = dict(offer_id=offer["offer_id"], description=offer["description"],
+                 amount_minor=offer["amount_minor"], currency=offer["currency"],
+                 payee=offer["payee"])
+    stamp = arguments.stamp or settings.utc_stamp()
+
+    try:
+        base = sandbox.base_url()
+        amount = sandbox.amount_value(order["amount_minor"])
+        print("SANDBOX_STEP=%s" % arguments.step)
+        print("SANDBOX_BASE=%s" % base)
+        print("SANDBOX_AMOUNT=%s %s" % (order["currency"], amount))
+
+        if arguments.step == "plan":
+            if not arguments.payee_email:
+                raise sandbox.SandboxError("SANDBOX_PAYEE_REQUIRED", "--payee-email")
+            body = sandbox.create_body(order, arguments.payee_email,
+                                       arguments.return_url, arguments.cancel_url)
+            ledger = {}
+            print("SANDBOX_INTENT=%s" % body["intent"])
+            print("SANDBOX_PAYEE_REF=%s" % sandbox.redact(
+                {"email_address": arguments.payee_email}, ledger)["email_address"])
+            print("SANDBOX_CALLBACKS=%s|%s" % (body["application_context"]["return_url"],
+                                               body["application_context"]["cancel_url"]))
+            print("SANDBOX_BODY=%s" % sandbox.dumps(sandbox.redact(body)))
+            print("SANDBOX_BODY_IS_REDACTED=True")
+            print("SANDBOX_COMMIT_KEY_SEED=sha256(order_id,amount_minor,currency)")
+            print("SANDBOX_TRANSPORT_CALLS=0")
+            print("SANDBOX_NETWORK=not_used")
+            print("SANDBOX_EXIT=0")
+            return EXIT_OK
+
+        transport = sandbox.LiveTransport(base)
+        client = sandbox.SandboxClient(transport, base)
+
+        if arguments.step == "create":
+            if not arguments.payee_email:
+                raise sandbox.SandboxError("SANDBOX_PAYEE_REQUIRED", "--payee-email")
+            # Order matters, and it is the reverse of the obvious one. The token call
+            # proves the credentials; the directory is created next, so a duplicate stamp
+            # stops here; only then is an order placed. Doing it the other way round would
+            # leave either an empty run directory (when credentials are missing) or a real
+            # order with nowhere to record it (when the stamp collides).
+            client.token()
+            directory = _sandbox_directory(stamp, arguments.business, create=True)
+            view = client.create_order(order, arguments.payee_email,
+                                       arguments.return_url, arguments.cancel_url)
+            document = {
+                "schema": sandbox.SCHEMA, "interface": sandbox.INTERFACE,
+                "step": "create", "stamp": stamp, "business": arguments.business,
+                "base": base,
+                "request": sandbox.redact(sandbox.create_body(
+                    order, arguments.payee_email, arguments.return_url, arguments.cancel_url)),
+                "response": view,
+                "h56_decision": arguments.decision,
+                "authority_granted": False,
+                "note": ("The buyer has not acted yet. `authority_granted` stays False until "
+                         "PayPal reports APPROVED, whatever H56 decided."),
+            }
+            path = _sandbox_write(directory, "01_create_order.json", document)
+            print("SANDBOX_ORDER_ID=%s" % view["order_id"])
+            print("SANDBOX_STATUS=%s" % view["status"])
+            print("SANDBOX_APPROVE_URL=%s" % (view["approve_url"] or "-"))
+            print("SANDBOX_AUTHORITY_GRANTED=False")
+            print("SANDBOX_TRANSPORT_CALLS=%d" % len(transport.calls))
+            print("SANDBOX_EVIDENCE=%s" % path)
+            print("SANDBOX_EXIT=0")
+            return EXIT_OK
+
+        if not arguments.order_id:
+            raise sandbox.SandboxError("SANDBOX_ORDER_ID_REQUIRED", "--order-id")
+
+        # Resolve the evidence directory before touching the network. A capture whose
+        # record has nowhere to go is money moved without a receipt.
+        directory = _sandbox_directory(stamp, arguments.business, create=False)
+        view = client.read_order(arguments.order_id)
+        print("SANDBOX_PAYPAL_STATUS=%s" % view["status"])
+        print("SANDBOX_PAYER_REF=%s" % (view["payer_ref"] or "-"))
+
+        if arguments.step == "status":
+            document = {"schema": sandbox.SCHEMA, "step": "status",
+                        "order_id": arguments.order_id, "response": view,
+                        "h56_decision": arguments.decision,
+                        "authority_granted": view["status"] == sandbox.APPROVED}
+            path = _sandbox_write(directory, "02_order_state.json", document)
+            print("SANDBOX_AUTHORITY_GRANTED=%s" % document["authority_granted"])
+            print("SANDBOX_TRANSPORT_CALLS=%d" % len(transport.calls))
+            print("SANDBOX_EVIDENCE=%s" % path)
+            print("SANDBOX_EXIT=0")
+            return EXIT_OK
+
+        # capture
+        state = sandbox.capture_preconditions(view, arguments.decision)
+        print("SANDBOX_PRECONDITION=%s" % state)
+        print("SANDBOX_H56_DECISION=%s" % (arguments.decision or "-"))
+        if state == sandbox.ALREADY_CAPTURED:
+            print("SANDBOX_ALREADY_CAPTURED=True")
+            print("SANDBOX_NOTE=order was already captured; nothing was charged again")
+            print("SANDBOX_EXIT=0")
+            return EXIT_OK
+        seed = sandbox.commit_seed(arguments.order_id, order["amount_minor"], order["currency"])
+        captured = client.capture_order(arguments.order_id, seed,
+                                        order["amount_minor"], order["currency"])
+        document = {"schema": sandbox.SCHEMA, "step": "capture",
+                    "order_id": arguments.order_id, "capture": captured,
+                    "commit_key": sandbox.commit_key(seed),
+                    "h56_decision": arguments.decision,
+                    "authority_granted": True,
+                    "note": ("Capture succeeded only because PayPal reported APPROVED. "
+                             "The governance verdict is recorded, not consulted.")}
+        path = _sandbox_write(directory, "03_capture.json", document)
+        print("SANDBOX_CAPTURE_ID=%s" % captured["capture_id"])
+        print("SANDBOX_CAPTURED=%s %s" % (captured["currency"], captured["value"]))
+        print("SANDBOX_FEE=%s %s" % (captured["fee_currency"], captured["fee_value"]))
+        print("SANDBOX_NET=%s %s" % (captured["net_currency"], captured["net_value"]))
+        print("SANDBOX_COMMIT_KEY=%s" % sandbox.commit_key(seed))
+        print("SANDBOX_TRANSPORT_CALLS=%d" % len(transport.calls))
+        print("SANDBOX_EVIDENCE=%s" % path)
+        print("SANDBOX_EXIT=0")
+        return EXIT_OK
+
+    except settings.MissingCredentials as error:
+        # Names only. The values were never read, so there is nothing to leak here.
+        print("SANDBOX   REFUSED code=SANDBOX_CREDENTIALS_MISSING names=%s"
+              % ",".join(error.names))
+        print("SANDBOX_EXIT=%d" % EXIT_SANDBOX)
+        return EXIT_SANDBOX
+    except settings.RunPathError as error:
+        print("SANDBOX   REFUSED code=%s" % error.code)
+        print("SANDBOX_EXIT=%d" % EXIT_SANDBOX)
+        return EXIT_SANDBOX
+    except sandbox.SandboxError as error:
+        print("SANDBOX   REFUSED code=%s detail=%s" % (error.code, error.detail[:160]))
+        print("SANDBOX_EXIT=%d" % EXIT_SANDBOX)
+        return EXIT_SANDBOX
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="app.main", description="H56 PayPal submission package")
@@ -616,6 +803,7 @@ def main(argv=None):
     verify_parser(sub)
     replay_parser(sub)
     recover_parser(sub)
+    sandbox_parser(sub)
     arguments = parser.parse_args(argv)
     if arguments.command == "selfcheck":
         return selfcheck()
@@ -627,6 +815,8 @@ def main(argv=None):
         return recover_command(arguments)
     if arguments.command == "evaluate":
         return evaluate_command(arguments)
+    if arguments.command == "sandbox":
+        return sandbox_command(arguments)
     return EXIT_USAGE
 
 
