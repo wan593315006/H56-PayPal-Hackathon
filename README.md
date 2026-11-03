@@ -116,6 +116,20 @@ a person.
 Offline evaluation is self-contained: it takes a request and an evidence envelope, runs
 the kernel, and returns a decision. It makes no network call.
 
+Run the offline tests through the guarded entry point:
+
+```
+python -B run_offline_tests.py
+```
+
+The guard checks DNS, TCP and UDP refusal before loading any test. Any attempted Python
+network operation makes the run fail, even if a test catches the exception. The final
+`OFFLINE_TEST_SUMMARY` reports test results and network attempts separately; a clean run
+has `blocked_network_attempts=0` and exits 0. Use `--check-guard` to run only the controls,
+or `-p test_sandbox.py` to select a test file. Plain `unittest` commands do not install this
+guard. It covers this Python process, not native code or independently launched child
+programs, and records event names without request arguments.
+
 Real mode adds PayPal REST calls and needs `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`
 in the process environment, or in a `.env` file next to this README. `.env` is ignored by
 git; `.env.example` lists key names only. No credential is ever committed, logged, or
