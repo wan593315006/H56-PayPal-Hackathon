@@ -136,13 +136,15 @@ def check_cold_start():
     """C5: a fresh interpreter imports the four native cores from pinned source bytes.
 
     Run in a child process so the result does not depend on what the test suite already
-    imported, and with -E so an inherited PYTHONPATH cannot supply a module from anywhere
-    but this package.
+    imported. The child gets `-E` (no Python environment configuration), `-B` (no byte
+    cache) and an allowlisted environment: inheriting the parent's environment would hand
+    it credentials it has no use for.
     """
+    environment = settings.subprocess_environment()
     finished = subprocess.run(
         [sys.executable, "-B", "-E", "-c", COLD_START,
          str(settings.CORE_ROOT), settings.SOURCE_MANIFEST_SHA],
-        cwd=str(settings.PACKAGE_ROOT), capture_output=True, text=True)
+        cwd=str(settings.PACKAGE_ROOT), env=environment, capture_output=True, text=True)
     if finished.returncode != 0:
         tail = (finished.stderr or "").strip().splitlines()
         raise SelfcheckError("NATIVE_COLD_START_FAILED", tail[-1][:200] if tail else "no stderr")
@@ -153,8 +155,8 @@ def check_cold_start():
     ok = (exports == EXPECTED_EXPORTS and receipt["file_count"] == 110
           and receipt["source_commit"] == "9221e16460258bc81e1176d69f63a09f81159b73"
           and receipt["status"] == "SOURCE_IDENTITY_ONLY")
-    return ok, "exports=%d vendor_files=%d commit=%s" % (
-        len(exports), receipt["file_count"], receipt["source_commit"][:8])
+    return ok, "exports=%d vendor_files=%d commit=%s env_keys=%d" % (
+        len(exports), receipt["file_count"], receipt["source_commit"][:8], len(environment))
 
 
 def check_clean():
