@@ -134,7 +134,7 @@ class BindingTest(unittest.TestCase):
         self._scratch = tempfile.TemporaryDirectory(prefix="h56-bind-")
         self.root = Path(self._scratch.name) / "records"
         self.root.mkdir()
-        self.run = run_chain(self.root, "b01")
+        self.run = run_chain(self.root, "20261103T040000Z")
 
     def tearDown(self):
         self._scratch.cleanup()
@@ -144,6 +144,18 @@ class BindingTest(unittest.TestCase):
                              order if order is not None else self.run["order"],
                              request if request is not None else self.run["request"],
                              raw if raw is not None else self.run["raw"])
+
+    def reseal(self, **changes):
+        """A forgery that is internally consistent, because sealing was never the defence."""
+        body = {key: value for key, value in self.run["binding"].items()
+                if key != "binding_sha256"}
+        body.update(changes)
+        return binding._seal(body)
+
+    def summary(self):
+        written = h56bridge.summarize(self.run["result"])
+        written.update(reference=self.run["result"]["reference"], order=self.run["order"])
+        return written
 
     def test_a_fresh_consistent_run_has_no_findings(self):
         """The control: without this, "reject everything" would pass every other test."""
@@ -219,6 +231,103 @@ class BindingTest(unittest.TestCase):
         self.assertIn(binding.ORDER_MISMATCH, findings)
         self.assertIn(binding.PROPOSAL_MISMATCH, findings)
 
+    def test_a_token_hidden_in_the_business_label_is_refused(self):
+        """Presence is not position.
+
+        The measured forgery: put a new order's token where the business name goes, evaluate
+        the old order, then swap the order and reseal the binding. The token is "in" the
+        request id, so a substring test passes, but it does not sit in the segment that means
+        "this order".
+        """
+        other = offer_named("S-C02")
+        new_order = dict(self.run["order"], offer_id=other["offer_id"],
+                         amount_minor=other["amount_minor"])
+        token = binding.order_token(new_order)
+        _head, stamp, last = self.run["request"]["request_id"].rsplit("_", 2)
+        hidden = "req_%s_%s_%s" % (token, stamp, last)
+        self.assertIn(token, hidden)          # the old substring test passed right here
+
+        forged_request = dict(self.run["request"], request_id=hidden)
+        forged = self.reseal(
+            order=new_order, order_sha256=binding.value_sha256(new_order),
+            order_token=token, proposal={k: new_order[k] for k in binding.PROPOSAL_FIELDS},
+            request_id=hidden, request_sha256=binding.value_sha256(forged_request))
+        findings = binding.check(forged, catalogue(), new_order, forged_request,
+                                 self.run["raw"])
+        self.assertIn(binding.ORDER_TOKEN_MISPLACED, findings)
+        self.assertNotIn(binding.TAMPERED, findings)
+
+    def test_replacing_the_evidence_and_resealing_is_refused(self):
+        """The request fixed a digest; resealing the binding over new bytes does not undo it."""
+        altered = self.run["raw"] + b" "
+        forged = self.reseal(evidence_sha256=hashlib.sha256(altered).hexdigest())
+        findings = binding.check(forged, catalogue(), self.run["order"],
+                                 self.run["request"], altered)
+        self.assertIn(binding.EVIDENCE_NOT_REQUESTED, findings)
+        # The binding agrees with the bytes it was shown; only the request disagrees.
+        self.assertNotIn(binding.EVIDENCE_MISMATCH, findings)
+
+    def test_a_flipped_decision_in_the_written_summary_is_refused(self):
+        """The record was fetched and then discarded, so its verdict was never compared."""
+        record = self.run["result"]["record"]
+        written = self.summary()
+        self.assertEqual(binding.check_result(written, record), [])
+
+        flipped = dict(written, decision="INFEASIBLE"
+                       if written["decision"] == "FEASIBLE" else "FEASIBLE")
+        self.assertIn(binding.RESULT_DECISION_MISMATCH,
+                      binding.check_result(flipped, record))
+
+    def test_a_flipped_boundary_is_refused(self):
+        """A boundary claim that reads better than the record must not survive."""
+        record = self.run["result"]["record"]
+        written = dict(self.summary(), authority_granted=True)
+        self.assertIn(binding.RESULT_BOUNDARY_MISMATCH,
+                      binding.check_result(written, record))
+
+    def test_the_whole_audit_passes_on_an_untouched_run(self):
+        """The control for all three forgery tests: the clean run must still pass."""
+        record = self.run["result"]["record"]
+        findings, fetched = binding.audit(
+            self.run["binding"], catalogue(), self.summary(),
+            self.run["request"], self.run["raw"], lambda session, reference: record)
+        self.assertEqual(findings, [])
+        self.assertIs(fetched, record)
+        # A store that cannot produce the record is a finding, not a pass: the audit must
+        # not read "the lookup failed" as "there was nothing to disagree with".
+        missing, none_fetched = binding.audit(
+            self.run["binding"], catalogue(), self.summary(),
+            self.run["request"], self.run["raw"], lambda session, reference: None)
+        self.assertIn(binding.RECORD_UNAVAILABLE, missing)
+        self.assertIsNone(none_fetched)
+
+    def test_a_store_that_refuses_is_reported_with_its_code(self):
+        """The audit owns the refusal mapping, so a broken store cannot fall through."""
+
+        class Refused(Exception):
+            code = "ENV_PARENT_BINDING_MISMATCH"
+
+        def refuse(session, reference):
+            raise Refused("no such event")
+
+        findings, fetched = binding.audit(
+            self.run["binding"], catalogue(), self.summary(),
+            self.run["request"], self.run["raw"], refuse)
+        self.assertIn("%s:ENV_PARENT_BINDING_MISMATCH" % binding.ASSESSMENT_UNAVAILABLE,
+                      findings)
+        self.assertIsNone(fetched)
+
+    def test_the_order_token_must_occupy_its_own_segment(self):
+        token = binding.order_token(self.run["order"])
+        self.assertTrue(binding.carries_order(self.run["request"]["request_id"], token))
+        # Somewhere else in the identifier, and not at the end.
+        self.assertFalse(binding.carries_order(
+            "req_%s_20261103T000000Z_%s" % (token, "0" * binding.ORDER_TOKEN_LENGTH), token))
+        self.assertFalse(binding.carries_order("req_shop_%s" % token, token))
+        # At the end, but the segment before it is not a stamp.
+        self.assertFalse(binding.carries_order(
+            "req_shop_notastamp_%s" % token, token))
+
     def test_a_changed_catalogue_is_refused(self):
         drifted = dict(catalogue(), per_order_limit_minor=999999)
         findings = binding.check(self.run["binding"], drifted, self.run["order"],
@@ -247,8 +356,8 @@ class SingleVariableTest(unittest.TestCase):
         self._scratch.cleanup()
 
     def test_the_contrast_differs_in_one_field_and_nothing_structural(self):
-        passing = run_chain(self.root, "pos01", host_key=HOST, dependencies=True)
-        failing = run_chain(self.root, "neg01", host_key=HOST, dependencies=False)
+        passing = run_chain(self.root, "20261103T041000Z", host_key=HOST, dependencies=True)
+        failing = run_chain(self.root, "20261103T042000Z", host_key=HOST, dependencies=False)
 
         # Identities are pinned: the same logical host, not merely "a similar one".
         self.assertEqual(passing["names"]["task_id"], failing["names"]["task_id"])

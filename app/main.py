@@ -407,25 +407,27 @@ def verify_command(arguments):
     request = read("request.json")
     evidence_raw = directory.joinpath("evidence.json").read_bytes()
 
-    findings = binding.check(record, policy.load_catalog(),
-                             result.get("order") or {}, request, evidence_raw)
-
-    # The last link is the only one that cannot be recomputed from the run directory alone:
-    # it asks the record store whether the assessment the binding names actually exists and
-    # still hashes to what the event says. A binding that points at a deleted artifact is a
-    # broken binding even if every digest in it is self-consistent.
-    if not findings:
+    # The last two links need the record store: does the assessment still exist, and does
+    # the verdict on display equal the verdict that was recorded. Opening the record and
+    # throwing away what came back answers only the first -- which is how a result.json
+    # whose decision had been edited still verified clean.
+    #
+    # Handing in the loader and nothing else matters: `binding.audit` owns the order of the
+    # three layers and the decision to consult the store at all, and G1-11 calls the same
+    # function with its own two-line loader. Anything the CLI decided here on its own would
+    # be a second copy of that rule, free to drift from the gate that is supposed to prove it.
+    def open_record(session, reference):
         from . import h56bridge
-        try:
-            store = h56bridge.kernel()[1].RecordStore(
-                Path(settings.RECORDS_ROOT).absolute(), record["session"], create=False)
-            store.view(record["reference"])
-        except Exception as error:  # noqa: BLE001 - any refusal here is the finding
-            findings.append("%s:%s" % (binding.ASSESSMENT_UNAVAILABLE,
-                                       getattr(error, "code", type(error).__name__)))
+        store = h56bridge.kernel()[1].RecordStore(
+            Path(settings.RECORDS_ROOT).absolute(), session, create=False)
+        return store.view(reference)["record"]
+
+    findings, kernel_record = binding.audit(record, policy.load_catalog(), result, request,
+                                            evidence_raw, open_record)
 
     ok = not findings
     print("BINDING   %s codes=%s" % ("OK" if ok else "REJECTED", ",".join(findings) or "-"))
+    print("BIND_RECORD %s" % ((kernel_record or {}).get("assessment_id") or "-"))
     print("BIND_FINDINGS=%d" % len(findings))
     print("VERIFY_EXIT=%d" % (EXIT_OK if ok else EXIT_BINDING))
     return EXIT_OK if ok else EXIT_BINDING
