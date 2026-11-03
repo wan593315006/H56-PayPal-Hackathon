@@ -68,6 +68,43 @@ Two properties are worth stating because they are easy to assume and were once m
 controlled comparisons: with both pinned, two runs differ in one evidence field and in
 nothing else.
 
+## Replay, recovery, and the read-only console
+
+Three entry points exist for the states a run can be left in. None of them repairs the
+record store: the kernel names a torn journal `PARTIAL_EVENT_PRESERVED_NO_AUTOREPAIR`, and
+that is taken at its word.
+
+```
+python -B -m app.main recover --survey
+python -B -m app.main recover --session oq_shop_20261103T171000Z --stamp 20261103T174000Z --create-run
+python -B -m app.main replay  --stamp 20261103T171000Z --business shop
+python -B ui/server.py --port 8848
+```
+
+`recover --survey` classifies every session from file counts alone, without importing the
+kernel, and prints what a person should do about anything that is not `HEALTHY`. Six states
+are distinguished: `ORPHAN_CLAIM`, `HALF_COMMIT`, `ARTIFACT_MISSING`, `CLAIM_MISSING`,
+`TORN_JOURNAL`, `HEALTHY`. Two of them return the same kernel code, so the disk shape is what
+tells them apart, not the code.
+
+`recover --session` writes `recovery.json` beside a run whose kernel record survived. It does
+not write `result.json`, and it sets `order_recoverable=false`: the order reached the kernel
+only as a digest inside `request_id`, which cannot be inverted. The record store holds the
+verdict, the run directory holds the business; neither alone is the whole story. Without
+`--create-run` it refuses a missing directory rather than manufacturing one.
+
+`replay` re-submits the bytes already on disk and reports `REUSED` only when `events.jsonl`
+is unchanged afterwards. It deliberately does not consult `native_recomputed`: that field is
+`False` on every successful return, a fresh computation included, so it cannot tell the two
+apart. The journal growing is the only honest signal.
+
+`ui/server.py` is a read-only console. It does not import `app` or the kernel, has no entry
+point that starts a run, and writes nothing under `runs/` or `records/`. Three guards stand
+in front of it: the `Host` header must equal `127.0.0.1:<port>` exactly (so `localhost` is
+refused), every `/api/*` request needs the `X-H56-Run-Token` printed at startup, and a POST
+body must be `{}` so no request can carry order fields. The token identifies a terminal, not
+a person.
+
 ## Offline and real mode
 
 Offline evaluation is self-contained: it takes a request and an evidence envelope, runs
