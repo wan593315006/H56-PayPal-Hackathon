@@ -43,6 +43,12 @@ CHILD_ENV_KEYS = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH")
 _LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}")
 _STAMP = re.compile(r"[0-9]{8}T[0-9]{6}Z")
 
+# A directory junction is a reparse point. `Path.is_symlink()` does not report one on
+# Windows: measured on 3.9.13, a junction gives `os.path.islink(...) == False` while its
+# attribute word is 0x410 (0x400 REPARSE_POINT | 0x10 DIRECTORY). So the attribute word,
+# not the symlink question, is what this module asks.
+FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+
 
 class SettingsError(RuntimeError):
     """Base class: every refusal here is a configuration error, not a runtime accident."""
@@ -154,12 +160,48 @@ def _label(value, what):
     return value
 
 
+def _reparse_point(path):
+    """True when `path` exists and the filesystem says it is a redirection.
+
+    Nothing here inspects the path string: a junction called `runs` is still spelled
+    `runs`, is still a parent of `runs/<name>`, and still compares equal to itself. Only
+    the attribute word distinguishes it from a real directory.
+    """
+    try:
+        info = os.lstat(str(path))
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return bool(getattr(info, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _assert_local(leaf):
+    """Refuse if any existing component from `runs/` down to `leaf` is a redirection.
+
+    Both directions matter: creation needs `runs/` itself to be real, recovery needs the
+    run directory to be real. Checking one and not the other is how a redirect survives
+    the first run and is then accepted forever after.
+    """
+    root = RUNS_ROOT.absolute()
+    try:
+        relative = Path(leaf).absolute().relative_to(root)
+    except ValueError:
+        raise RunPathError("RUN_PATH_ESCAPES_RUNS", str(leaf)) from None
+    current = root
+    if _reparse_point(current):
+        raise RunPathError("RUN_PATH_REPARSE_POINT", str(current))
+    for part in relative.parts:
+        current = current / part
+        if _reparse_point(current):
+            raise RunPathError("RUN_PATH_REPARSE_POINT", str(current))
+
+
 def _inside_runs(directory):
-    """Belt and braces: the joined path must sit directly under `runs/`."""
+    """Belt and braces: the joined path must sit directly under `runs/`, and be real."""
     root = RUNS_ROOT.absolute()
     candidate = directory.absolute()
     if candidate.parent != root:
         raise RunPathError("RUN_PATH_ESCAPES_RUNS", str(directory))
+    _assert_local(candidate)
     return candidate
 
 
@@ -177,6 +219,9 @@ def run_directory(stamp, business):
         directory.mkdir(parents=False, exist_ok=False)
     except FileExistsError:
         raise RunPathError("RUN_DIRECTORY_ALREADY_EXISTS", name) from None
+    # Re-checked after creation: the check above and this mkdir are two separate looks at
+    # the filesystem, and a redirect swapped in between them would otherwise go unnoticed.
+    _assert_local(directory)
     return directory
 
 
@@ -184,10 +229,12 @@ def existing_run_directory(stamp, business):
     """Return an existing run directory without creating anything.
 
     Recovery reads the evidence a previous run left behind; it must never manufacture a
-    fresh, empty directory that looks like that run.
+    fresh, empty directory that looks like that run, and it must not read evidence that a
+    redirect placed somewhere else.
     """
     name = "%s_%s" % (_stamp(stamp), _label(business, "BUSINESS"))
     directory = _inside_runs(RUNS_ROOT / name)
     if not directory.is_dir():
         raise RunPathError("RUN_DIRECTORY_MISSING", name)
+    _assert_local(directory)
     return directory
