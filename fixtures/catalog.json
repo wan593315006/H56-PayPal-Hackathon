@@ -1,0 +1,32 @@
+{
+  "schema": "H56_PAYPAL_CATALOG_V1",
+  "interface_version": "1.0.0",
+  "currency": "USD",
+  "per_order_limit_minor": 5000,
+  "payees": [
+    "PAYPAL-MERCHANT-SANDBOX-001"
+  ],
+  "offers": [
+    {
+      "offer_id": "S-C01",
+      "description": "Offline qualification item, smallest denomination",
+      "amount_minor": 100,
+      "currency": "USD",
+      "payee": "PAYPAL-MERCHANT-SANDBOX-001"
+    },
+    {
+      "offer_id": "S-C02",
+      "description": "Offline qualification item, mid denomination",
+      "amount_minor": 2500,
+      "currency": "USD",
+      "payee": "PAYPAL-MERCHANT-SANDBOX-001"
+    },
+    {
+      "offer_id": "S-C03",
+      "description": "Offline qualification item, at the per-order limit",
+      "amount_minor": 5000,
+      "currency": "USD",
+      "payee": "PAYPAL-MERCHANT-SANDBOX-001"
+    }
+  ]
+}

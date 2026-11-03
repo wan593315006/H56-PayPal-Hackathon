@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from . import settings
+from . import hostproof, settings
 
 LONG_PREFIX = "\\\\?\\"
 EXPECTED_EXPORTS = ("Assertion", "Catalog", "Compiler", "Context", "Definition",
@@ -212,15 +212,159 @@ def selfcheck():
     return 1
 
 
+EXIT_OK, EXIT_SELFCHECK, EXIT_USAGE, EXIT_BLOCKED, EXIT_KERNEL = 0, 1, 2, 3, 4
+
+
+def build_order(offer_id, offer, amount_minor=None, currency=None, payee=None):
+    """An order is what the operator wants to pay; the catalogue only supplies defaults.
+
+    `offer` is None when the identifier is not in the catalogue. That case still builds an
+    order: the policy layer is what must report the miss, so this function must not raise
+    first and hide the rule that applies.
+    """
+    offer = offer or {}
+    return {
+        "offer_id": offer_id,
+        "amount_minor": offer.get("amount_minor") if amount_minor is None else amount_minor,
+        "currency": offer.get("currency") if currency is None else currency,
+        "payee": offer.get("payee") if payee is None else payee,
+    }
+
+
+def _print_policy(result):
+    print("POLICY    %s reasons=%s" % (
+        result["decision"], ",".join(result["reason_codes"]) or "-"))
+
+
+def _write_blocked(run_directory, policy, order):
+    """A business refusal is not a kernel record: it stays in the run directory."""
+    document = {
+        "schema": "H56_APP_RUN_RESULT_V1",
+        "layer": "BUSINESS_POLICY",
+        "decision": "BLOCKED",
+        "reason_codes": list(policy["reason_codes"]),
+        "rules": list(policy["rules"]),
+        "order": order,
+        "h56_invoked": False,
+        "h56_status": "NOT_EVALUATED",
+        "note": "H56 was not asked. This verdict is the application's, not the kernel's.",
+    }
+    run_directory.joinpath("result.json").write_bytes(
+        hostproof.dumps(document).encode("utf-8"))
+    return document
+
+
+def evaluate_command(arguments):
+    """One end-to-end offline run: catalogue, policy, host snapshot, four cores, binding."""
+    from . import policy
+
+    stamp = arguments.stamp or settings.utc_stamp()
+    business = arguments.business
+    run_directory = settings.run_directory(stamp, business)
+    catalogue = policy.load_catalog()
+    offer = next((o for o in catalogue["offers"] if o["offer_id"] == arguments.offer_id), None)
+    order = build_order(arguments.offer_id, offer,
+                        arguments.amount_minor, arguments.currency, arguments.payee)
+    order["order_id"] = arguments.order_id
+
+    verdict = policy.decide(order, catalogue)
+    _print_policy(verdict)
+    if verdict["decision"] != "ALLOW":
+        document = _write_blocked(run_directory, verdict, order)
+        print("H56       NOT_INVOKED h56_invoked=%s records_written=0" % (
+            document["h56_invoked"]))
+        print("RUN       %s" % run_directory.name)
+        return EXIT_BLOCKED
+
+    # Only now does the kernel become reachable: a business refusal above returns before
+    # this line, so "the kernel was never asked" is a property of the code path, not a claim.
+    from . import h56bridge
+
+    names = h56bridge.identifiers(business, stamp)
+    task = h56bridge.task_ref(names["task_id"])
+    as_of = hostproof.stamp(hostproof.utc_now())
+    observed = (hostproof.stamp(hostproof.shift(hostproof.utc_now(),
+                                                -arguments.observed_offset))
+                if arguments.observed_offset else None)
+    values = {"dependencies_available": arguments.dependencies == "true"}
+    if arguments.integrity_rid is not None:
+        values["integrity_rid"] = arguments.integrity_rid
+    envelope, envelope_raw = hostproof.build(
+        names["environment_id"], task, as_of, observed_at=observed, values=values)
+
+    try:
+        request = h56bridge.request_document(
+            names["request_id"], task, names["environment_id"],
+            hashlib.sha256(envelope_raw).hexdigest(), as_of)
+        result = h56bridge.evaluate(envelope_raw, request, settings.RECORDS_ROOT,
+                                    names["session"])
+    except Exception as error:  # the kernel refuses by raising, not by returning
+        code = getattr(error, "code", type(error).__name__)
+        stage = getattr(error, "stage", "INPUT")
+        document = {
+            "schema": "H56_APP_RUN_RESULT_V1",
+            "layer": "KERNEL",
+            "decision": "REJECTED",
+            "h56_invoked": True,
+            "reason_codes": [code],
+            "stage": stage,
+            "request_id": names["request_id"],
+        }
+        run_directory.joinpath("result.json").write_bytes(
+            hostproof.dumps(document).encode("utf-8"))
+        print("H56       REJECTED stage=%s code=%s" % (stage, code))
+        print("RUN       %s" % run_directory.name)
+        return EXIT_KERNEL
+
+    summary = h56bridge.summarize(result)
+    summary.update(schema="H56_APP_RUN_RESULT_V1", layer="KERNEL", h56_invoked=True,
+                   request_id=names["request_id"], session=names["session"],
+                   reference=result["reference"],
+                   order=order, policy=dict(decision=verdict["decision"],
+                                            reason_codes=verdict["reason_codes"]))
+    h56bridge.write_run(run_directory, request, envelope_raw, summary)
+    print("H56       %s stage=%s native_calls=%d returned=%d evidence=%s policy=%s" % (
+        summary["decision"], summary["stage"], summary["native_calls"],
+        summary["native_returned"], summary["evidence_state"], summary["policy_state"]))
+    print("ASSESS    %s" % summary["assessment_id"])
+    print("DECISION  %s" % summary["decision_id"])
+    print("BOUNDARY  authority_granted=%s execution_permitted=%s business_action_calls=%s" % (
+        summary["authority_granted"], summary["execution_permitted"],
+        summary["business_action_calls"]))
+    print("RUN       %s" % run_directory.name)
+    return EXIT_OK
+
+
+def evaluate_parser(sub):
+    parser = sub.add_parser(
+        "evaluate", help="run one offline chain: policy, host proof, four cores, binding")
+    parser.add_argument("--offer-id", required=True)
+    parser.add_argument("--order-id", default="O-DEFAULT")
+    parser.add_argument("--amount-minor", type=int, default=None)
+    parser.add_argument("--currency", default=None)
+    parser.add_argument("--payee", default=None)
+    parser.add_argument("--business", default="shop")
+    parser.add_argument("--stamp", default=None, help="20261103T021741Z; defaults to now")
+    parser.add_argument("--dependencies", choices=("true", "false"), default="true",
+                        help="the one fact the negative case flips")
+    parser.add_argument("--integrity-rid", type=int, default=None)
+    parser.add_argument("--observed-offset", type=int, default=0,
+                        help="seconds to age the snapshot; >300 expires every field")
+    return parser
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="app.main", description="H56 PayPal submission package")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("selfcheck", help="verify the package against its own identity record")
+    evaluate_parser(sub)
     arguments = parser.parse_args(argv)
     if arguments.command == "selfcheck":
         return selfcheck()
-    return 2
+    if arguments.command == "evaluate":
+        return evaluate_command(arguments)
+    return EXIT_USAGE
 
 
 if __name__ == "__main__":
