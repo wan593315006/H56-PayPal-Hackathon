@@ -44,16 +44,19 @@ It prints one line per check and exits 0 only if all of them pass:
 
 ## Run one offline chain
 
-```
-python -B -m app.main evaluate --offer-id S-C01 --order-id O-DEMO
-python -B -m app.main verify   --stamp 20261103T171000Z --business shop
+```powershell
+$stamp = Get-Date -UtcNow -Format "yyyyMMdd'T'HHmmss'Z'"
+python -B -m app.main evaluate --offer-id S-C01 --order-id O-DEMO --stamp $stamp
+python -B -m app.main verify   --stamp $stamp --business shop
 ```
 
 `evaluate` walks one end-to-end run: catalogue, business policy, host-evidence envelope,
 the four cores, and a binding record. `verify` re-checks that binding from the bytes on
 disk, without asking the kernel to decide again, and exits 5 if any link is broken. It
 also opens the kernel record and compares the verdict on display against it: the record
-is not only required to exist, it is required to agree.
+is not only required to exist, it is required to agree. Generate the stamp once and pass
+the same value to both commands -- `verify` re-opens the exact directory `evaluate`
+wrote, so a stamp typed from memory will not be found.
 
 Two properties are worth stating because they are easy to assume and were once missing:
 
@@ -139,13 +142,16 @@ written into an evidence record.
 
 From an empty machine, without knowing anything about how this package was built:
 
-1. **Clone short.** The deepest path inside the package is 236 characters; a clone root
-   longer than about 24 characters can hit the Windows `MAX_PATH` limit on the vendored
-   sources. Use a short root, e.g. `C:\h56payc1` -- not the Desktop, not a path with
-   spaces or non-ASCII characters.
+1. **Clone short, then enter it.** The deepest relative path inside the package is 226
+   characters (236 absolute against a short root); a clone root longer than about 24
+   characters can hit the Windows `MAX_PATH` limit on the vendored sources. Use a short
+   root, e.g. `C:\h56payc1` -- not the Desktop, not a path with spaces or non-ASCII
+   characters. Beware: plain archive extraction (zip or `tar`) can **silently drop** the
+   deepest files on Windows -- always extract with git itself and confirm the count.
 
-   ```
+   ```powershell
    git clone <url> C:/h56payc1
+   cd C:\h56payc1
    ```
 
    Line endings: `.gitattributes` sets `* -text`, so both `core.autocrlf=false` and
@@ -155,28 +161,29 @@ From an empty machine, without knowing anything about how this package was built
 
 2. **Check the package.**
 
-   ```
+   ```powershell
    python -B -m app.main selfcheck
    ```
 
 3. **Run the guarded offline tests.**
 
-   ```
+   ```powershell
    python -B run_offline_tests.py
    ```
 
-   Do **not** run `python -m unittest` directly: the run roots are injected by the
-   guarded entry point, and a bare invocation fails with `RuntimeError` by design.
+   The guarded entry point installs the fail-closed network guard **before** any test is
+   imported; plain `unittest` commands do not install that guard, so a test that tries to
+   reach the network would not be caught. Use the guarded entry for any full run.
 
-4. **Run one offline chain** (see "Run one offline chain" above), then `verify` it.
+4. **Run one offline chain** (see "Run one offline chain" above -- generate the stamp
+   with the same command shown there and pass it to both `evaluate` and `verify`).
 
 5. Optionally, real-mode sandbox: read [docs/CREDENTIALS.md](docs/CREDENTIALS.md) for
    the key names and the injection rules. Nothing in steps 1-4 needs any credential,
    and the sandbox moves no real money.
 
 Known shell traps on Windows: PowerShell `>` redirection writes UTF-16LE (do not use it
-to capture evidence; write files from the tool itself); `demo.py --json` resolves a
-relative path against the current working directory and validates only after the run.
+to capture evidence; write files from the tool itself).
 
 ## Licence
 

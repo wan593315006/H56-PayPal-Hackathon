@@ -19,9 +19,20 @@ command, and never write them to disk:
 
 ```powershell
 $env:PAYPAL_CLIENT_ID = Read-Host "client id"
-$env:PAYPAL_CLIENT_SECRET = Read-Host "client secret" -AsSecureString
-# convert in memory when the call is made; do not echo, redirect, or log the value
+$secure = Read-Host "client secret" -AsSecureString
+# Convert in memory, in this shell only. A SecureString assigned directly is NOT the
+# text -- [string]$secure yields "System.Security.SecureString". Conversion:
+$bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$env:PAYPAL_CLIENT_SECRET = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+[System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)   # zero the buffer
+Remove-Variable secure, bstr                                     # drop the handles
+# at the end of the session (same shell):
+Remove-Item Env:PAYPAL_CLIENT_ID, Env:PAYPAL_CLIENT_SECRET
 ```
+
+Nothing above echoes, redirects, or logs a value; `$env:` never goes to disk. The
+`Read-Host -AsSecureString` line keeps the secret out of the scrollback and the
+console history.
 
 Alternative: a `.env` file next to the README. `.env` is ignored by git
 (`.gitignore`), and `.env.example` lists the key names only.
