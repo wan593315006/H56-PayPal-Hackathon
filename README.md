@@ -135,6 +135,49 @@ in the process environment, or in a `.env` file next to this README. `.env` is i
 git; `.env.example` lists key names only. No credential is ever committed, logged, or
 written into an evidence record.
 
+## Reproduce from scratch
+
+From an empty machine, without knowing anything about how this package was built:
+
+1. **Clone short.** The deepest path inside the package is 236 characters; a clone root
+   longer than about 24 characters can hit the Windows `MAX_PATH` limit on the vendored
+   sources. Use a short root, e.g. `C:\h56payc1` -- not the Desktop, not a path with
+   spaces or non-ASCII characters.
+
+   ```
+   git clone <url> C:/h56payc1
+   ```
+
+   Line endings: `.gitattributes` sets `* -text`, so both `core.autocrlf=false` and
+   `core.autocrlf=true` clones must produce byte-identical files. If they do not, stop
+   and report it; the 139 pinned members are checked by hash, and a line-ending
+   conversion invalidates every one of them.
+
+2. **Check the package.**
+
+   ```
+   python -B -m app.main selfcheck
+   ```
+
+3. **Run the guarded offline tests.**
+
+   ```
+   python -B run_offline_tests.py
+   ```
+
+   Do **not** run `python -m unittest` directly: the run roots are injected by the
+   guarded entry point, and a bare invocation fails with `RuntimeError` by design.
+
+4. **Run one offline chain** (see "Run one offline chain" above), then `verify` it.
+
+5. Optionally, real-mode sandbox: read [docs/CREDENTIALS.md](docs/CREDENTIALS.md) for
+   the key names and the injection rules. Nothing in steps 1-4 needs any credential,
+   and the sandbox moves no real money.
+
+Known shell traps on Windows: PowerShell `>` redirection writes UTF-16LE (do not use it
+to capture evidence; write files from the tool itself); `demo.py --json` resolves a
+relative path against the current working directory and validates only after the run.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE) and [IP_NOTICE.md](IP_NOTICE.md).
