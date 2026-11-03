@@ -665,17 +665,50 @@ def _write_intent(directory, intent):
     return path
 
 
-def _intent_matches(intent, order, payee_ref, operation_id):
+def _differing_paths(saved, current, prefix=""):
+    """The dotted paths where two JSON-shaped values disagree, for a named refusal.
+
+    Both sides are the redacted create bodies -- deterministic serialisations of the
+    same shape -- so a scalar comparison is exact, and a missing or extra key is a
+    difference like any other. The paths, not just a count, go into the refusal: "the
+    request changed" is a warning, "application_context.return_url changed" is a fact.
+    """
+    if isinstance(saved, dict) and isinstance(current, dict):
+        out = []
+        for key in sorted(set(saved) | set(current)):
+            out.extend(_differing_paths(saved.get(key), current.get(key),
+                                        "%s.%s" % (prefix, key) if prefix else key))
+        return out
+    if isinstance(saved, list) and isinstance(current, list):
+        if len(saved) != len(current):
+            return [prefix or "(list length)"]
+        out = []
+        for index, (mine, yours) in enumerate(zip(saved, current)):
+            out.extend(_differing_paths(mine, yours, "%s[%d]" % (prefix, index)))
+        return out
+    return ([] if saved == current else [prefix or "(root)"])
+
+
+def _intent_matches(intent, order, payee_ref, operation_id, request=None):
     """The saved intent is what this operation is; a disagreement is a refusal.
 
     The auditor measured the opposite: after a simulated timeout left the intent at
     PENDING_SEND, a retry under the same run sent a new request under a recomputed key
     with a new payee, while the intent file still held the old key and the old payee
-    digest. The intent is persisted precisely so the retry obeys it: the saved key is
+    digest.     The intent is persisted precisely so the retry obeys it: the saved key is
     reused as it stands, and the current parameters must agree with what was saved --
     offer, amount, currency, payee, operation identity -- before anything is sent.
     Silently re-aiming a payment at a different payee inside one operation is not a
     retry, it is a second payment wearing the first one's name.
+
+    `request`, when given, is the current create body as it would be sent, redacted the
+    same way the intent's copy was. The auditor measured the hole this closes: with
+    everything the field checks cover held constant, a retry that changed only the
+    callback URL still went out under the saved key, the intent file still saying A
+    while the wire carried B. The idempotency key makes PayPal treat the second attempt
+    as the first, so the request the key names must be the request that is sent -- byte
+    for byte in shape, callback addresses included. A retry either sends the fixed
+    request or refuses by name; it never quietly swaps a part.
     """
     from . import sandbox
     if not isinstance(intent, dict):
@@ -691,6 +724,12 @@ def _intent_matches(intent, order, payee_ref, operation_id):
         differing.append("confirmed_at")
     if not intent.get("create_key"):
         differing.append("create_key")
+    if request is not None:
+        saved_request = intent.get("request")
+        if not isinstance(saved_request, dict):
+            differing.append("request")
+        else:
+            differing.extend(_differing_paths(saved_request, request))
     if differing:
         raise sandbox.SandboxError(
             sandbox.INTENT_MISMATCH,
@@ -780,9 +819,22 @@ def _h56_gate(stamp, business, order, catalogue, directory=None, records_root=No
     # derived from as_of itself, so a request pointed at the past or the future is
     # perfectly self-consistent and only the wall clock can disagree with it.
     age = sandbox.check_evaluation_freshness(as_of)
+    # The request's timestamp is not the only clock in the record. The evidence has its
+    # own `observed_at`, and the auditor measured a record where the request was 103
+    # seconds old but the evidence had been observed 353 seconds ago -- legal when the
+    # evaluation ran, self-consistent end to end, and still an expired snapshot by the
+    # time the gate ran. The verdict rests on the evidence, so the evidence's own age
+    # is checked against the same bound, oldest item governing.
+    try:
+        evidence = json.loads(evidence_raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise sandbox.SandboxError(
+            sandbox.H56_RECORD_MISSING, "evidence.json is not parsable") from None
+    evidence_age = sandbox.check_evidence_freshness(evidence)
 
     return {"assessment_id": result.get("assessment_id"), "decision": decision,
             "as_of": as_of, "evaluation_age_seconds": age,
+            "evidence_age_seconds": evidence_age,
             "session": binding_doc.get("session"), "directory": directory,
             "kernel_record": kernel_record}
 
@@ -875,13 +927,20 @@ def sandbox_command(arguments):
                 directory = settings.existing_run_directory(intent_stamp, arguments.business)
                 intent = _read_intent(directory)
             operation_id = "%s_%s" % (intent_stamp, arguments.business)
+            # The create body as this run would send it, redacted the way the intent's
+            # copy was redacted. The comparison below is exact because redaction is
+            # deterministic; what it compares is the full request, callbacks included.
+            current_request = sandbox.redact(sandbox.create_body(
+                order, arguments.payee_email, arguments.return_url, arguments.cancel_url))
             if intent is not None:
                 # The saved intent governs the retry, the auditor measured what happens
                 # when it does not: after a simulated timeout the retry recomputed a new
                 # key with a new payee while the file still held the old ones. The saved
-                # key is reused as it stands, and the current parameters must agree with
-                # the saved operation before anything is sent.
-                _intent_matches(intent, order, payee_ref, operation_id)
+                # key is reused as it stands, and the current parameters -- the whole
+                # request body, not just the five summary fields -- must agree with the
+                # saved operation before anything is sent.
+                _intent_matches(intent, order, payee_ref, operation_id,
+                                request=current_request)
                 create_key = intent["create_key"]
             else:
                 create_key = sandbox.create_key(
@@ -892,9 +951,7 @@ def sandbox_command(arguments):
                     "confirmed_at": gate["as_of"],
                     "offer_id": order["offer_id"], "amount_minor": order["amount_minor"],
                     "currency": order["currency"], "payee_ref": payee_ref,
-                    "request": sandbox.redact(sandbox.create_body(
-                        order, arguments.payee_email, arguments.return_url,
-                        arguments.cancel_url)),
+                    "request": current_request,
                     "assessment_id": gate["assessment_id"], "h56_decision": gate["decision"],
                 }
                 # The intent is on disk before the send: key, operation, amount, payee
@@ -942,8 +999,7 @@ def sandbox_command(arguments):
                 "step": "create", "stamp": stamp, "operation": operation_id,
                 "business": arguments.business,
                 "base": base,
-                "request": sandbox.redact(sandbox.create_body(
-                    order, arguments.payee_email, arguments.return_url, arguments.cancel_url)),
+                "request": current_request,
                 "response": view,
                 "create_key": create_key,
                 "token_realm": client.realm(),
@@ -999,10 +1055,6 @@ def sandbox_command(arguments):
         # grounds a second order: the intent's key and order id are the ones used.
         reassessed = bool(intent.get("assessment_id")
                           and intent["assessment_id"] != gate["assessment_id"])
-        # The business proposal holds for 900 seconds from its confirmation. Past that
-        # the proposal must be confirmed again; no capture rides on an expired one.
-        sandbox.check_proposal_window(intent["confirmed_at"])
-
         view = client.read_order(arguments.order_id)
         print("SANDBOX_PAYPAL_STATUS=%s" % view["status"])
         print("SANDBOX_PAYER_REF=%s" % (view["payer_ref"] or "-"))
@@ -1020,6 +1072,17 @@ def sandbox_command(arguments):
             print("SANDBOX_EVIDENCE=%s" % path)
             print("SANDBOX_EXIT=0")
             return EXIT_OK
+
+        # The business proposal holds for 900 seconds from its confirmation. Past that
+        # the proposal must be confirmed again, and no capture rides on an expired one
+        # -- but an expired proposal must not blind the flow either. The status query
+        # above stays available past the window, because "what happened to the order I
+        # already made" is a question about an existing operation, answered with a GET
+        # after the ownership and order-binding checks, not a new payment on old
+        # momentum. The auditor measured the previous placement: the check sat before
+        # the status branch, and with a fresh re-evaluation in hand the manual's own
+        # instruction to check a pending order was refused unread, zero GETs sent.
+        sandbox.check_proposal_window(intent["confirmed_at"])
 
         # capture. Identity, money and payee are checked against what PayPal actually
         # holds, before the capture request exists -- the auditor measured the previous

@@ -91,6 +91,7 @@ H56_BINDING_INVALID = "SANDBOX_H56_BINDING_INVALID"
 H56_DECISION_NOT_FEASIBLE = "SANDBOX_H56_DECISION_NOT_FEASIBLE"
 H56_EVALUATION_STALE = "SANDBOX_H56_EVALUATION_STALE"
 H56_EVALUATION_FUTURE = "SANDBOX_H56_EVALUATION_FUTURE"
+H56_EVIDENCE_STALE = "SANDBOX_H56_EVIDENCE_STALE"
 PROPOSAL_EXPIRED = "SANDBOX_PROPOSAL_EXPIRED"
 RUN_STATE_UNKNOWN = "SANDBOX_RUN_STATE_UNKNOWN"
 
@@ -235,6 +236,38 @@ def check_evaluation_freshness(as_of, now=None):
         raise SandboxError(H56_EVALUATION_STALE,
                            "as_of=%s age=%ds limit=%ds" % (as_of, age, MAX_EVALUATION_AGE_SECONDS))
     return age
+
+
+def check_evidence_freshness(envelope, now=None):
+    """The same 300-second bound, applied to the evidence itself.
+
+    The auditor measured the hole this closes: a request `as_of` 103 seconds old whose
+    evidence items carry an `observed_at` 353 seconds back. The record is perfectly
+    self-consistent -- the binding hashes what is on disk, the evaluation was legal when
+    it ran -- and the request-age check passes too. But the verdict rests on the
+    evidence, not on the request's timestamp, and at execution time the evidence was
+    already past its own bound. The oldest item governs: one expired observation voids
+    the snapshot. A future observation is refused on the same terms as a future `as_of`,
+    and an item without a well-formed stamp is refused rather than skipped.
+    """
+    items = envelope.get("items") if isinstance(envelope, dict) else None
+    if not isinstance(items, list) or not items:
+        raise SandboxError(H56_EVIDENCE_STALE, "envelope carries no evidence items")
+    reference = now or datetime.datetime.utcnow()
+    oldest = None
+    for item in items:
+        observed = item.get("observed_at") if isinstance(item, dict) else None
+        age = evaluation_age_seconds(observed, reference)
+        if age < 0:
+            raise SandboxError(H56_EVALUATION_FUTURE,
+                               "observed_at=%s is %ds ahead of the clock" % (observed, -age))
+        if oldest is None or age > oldest:
+            oldest = age
+    if oldest > MAX_EVALUATION_AGE_SECONDS:
+        raise SandboxError(H56_EVIDENCE_STALE,
+                           "oldest observed_at age=%ds limit=%ds"
+                           % (oldest, MAX_EVALUATION_AGE_SECONDS))
+    return oldest
 
 
 def check_proposal_window(confirmed_at, now=None):

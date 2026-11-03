@@ -654,6 +654,67 @@ class TimeContractTests(SandboxCase):
         self.assertEqual(caught.exception.code, sandbox.RUN_STATE_UNKNOWN)
 
 
+class EvidenceFreshnessTests(SandboxCase):
+    """The 300-second bound applied to the evidence itself, not just the request.
+
+    The auditor measured the hole: a request `as_of` 103 seconds old whose evidence was
+    observed 353 seconds back -- the record legal and self-consistent end to end, the
+    request-age check passing, and an expired snapshot executed anyway. The evidence is
+    what the verdict rests on, so its own `observed_at` is checked at execution time.
+    """
+
+    @staticmethod
+    def stamp(seconds):
+        import datetime
+        moment = datetime.datetime.utcnow() + datetime.timedelta(seconds=seconds)
+        return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @staticmethod
+    def envelope(as_of, observed_at=None, extra_items=()):
+        from app import hostproof
+        envelope, _ = hostproof.build("ENV-TEST", "TASK-TEST", as_of,
+                                      observed_at=observed_at, extra_items=extra_items)
+        return envelope
+
+    def test_evidence_within_300_seconds_is_fresh(self):
+        for age in (0, 299, 300):
+            self.assertGreaterEqual(
+                sandbox.check_evidence_freshness(
+                    self.envelope(self.stamp(-age), self.stamp(-age))), 0)
+
+    def test_evidence_past_300_seconds_is_stale_even_when_the_request_is_fresh(self):
+        # The auditor's exact shape: as_of 103 seconds old -- fresh by the request
+        # check -- riding on evidence observed 353 seconds ago.
+        for age in (301, 353, 86401):
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                sandbox.check_evidence_freshness(
+                    self.envelope(self.stamp(-103), self.stamp(-age)))
+            self.assertEqual(caught.exception.code, sandbox.H56_EVIDENCE_STALE)
+
+    def test_the_oldest_item_governs(self):
+        extra = ({"evidence_id": "EVX_EXTRA", "field": "extra", "knowledge": "KNOWN",
+                  "value": 1, "source_id": "SYNTHETIC_FIXTURE_V1",
+                  "observed_at": self.stamp(-301), "coverage": "FIELD_ONLY"},)
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.check_evidence_freshness(self.envelope(self.stamp(0), extra_items=extra))
+        self.assertEqual(caught.exception.code, sandbox.H56_EVIDENCE_STALE)
+
+    def test_evidence_dated_in_the_future_is_refused(self):
+        for age in (1, 3600):
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                sandbox.check_evidence_freshness(
+                    self.envelope(self.stamp(0), self.stamp(age)))
+            self.assertEqual(caught.exception.code, sandbox.H56_EVALUATION_FUTURE)
+
+    def test_evidence_without_items_or_with_a_broken_stamp_is_refused_not_skipped(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.check_evidence_freshness({"schema": "H56_ENV_EVIDENCE_V1", "items": []})
+        self.assertEqual(caught.exception.code, sandbox.H56_EVIDENCE_STALE)
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.check_evidence_freshness({"items": [{"field": "x"}]})
+        self.assertEqual(caught.exception.code, sandbox.EVALUATION_TIMESTAMP_INVALID)
+
+
 class IntentMatchTests(SandboxCase):
     """The saved intent governs the retry.
 
@@ -705,6 +766,71 @@ class IntentMatchTests(SandboxCase):
                                      self.intent()["payee_ref"], "S1_shop")
             self.assertEqual(caught.exception.code, sandbox.INTENT_MISMATCH)
             self.assertIn(field, caught.exception.detail)
+
+
+class RequestBodyMatchTests(SandboxCase):
+    """The retry obeys the whole saved request, callbacks included.
+
+    The auditor measured the hole: with the summary fields held constant, a retry that
+    changed only the callback URL still went out under the saved key -- the intent file
+    saying A while the wire carried B. The key makes PayPal treat the second attempt as
+    the first, so the request the key names must be the request that is sent.
+    """
+
+    PAYEE = "sb-seller@business.example.com"
+    RETURN_A = "https://return.example.com/A"
+    CANCEL_A = "https://cancel.example.com/A"
+
+    def body(self, return_url=None, cancel_url=None):
+        return sandbox.redact(sandbox.create_body(
+            {"offer_id": "S-C01", "amount_minor": 100, "currency": "USD",
+             "payee": "PAYPAL-MERCHANT-SANDBOX-001", "description": "S-C01"},
+            self.PAYEE, return_url or self.RETURN_A, cancel_url or self.CANCEL_A))
+
+    def intent(self, **overrides):
+        base = {"create_key": "h56-create-" + "a" * 32, "operation_id": "S1_shop",
+                "confirmed_at": "2026-11-03T03:00:00Z",
+                "offer_id": "S-C01", "amount_minor": 100, "currency": "USD",
+                "payee_ref": sandbox.payee_ref(self.PAYEE),
+                "request": self.body()}
+        base.update(overrides)
+        return base
+
+    def order(self):
+        return {"offer_id": "S-C01", "amount_minor": 100, "currency": "USD",
+                "payee": "PAYPAL-MERCHANT-SANDBOX-001"}
+
+    def test_an_identical_request_passes(self):
+        self.assertTrue(main._intent_matches(
+            self.intent(), self.order(), self.intent()["payee_ref"], "S1_shop",
+            request=self.body()))
+
+    def test_a_changed_callback_is_refused_and_named(self):
+        for url_key, value in (("return_url", "https://return.example.com/B"),
+                               ("cancel_url", "https://cancel.example.com/B")):
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                main._intent_matches(self.intent(), self.order(),
+                                     self.intent()["payee_ref"], "S1_shop",
+                                     request=self.body(**{url_key: value}))
+            self.assertEqual(caught.exception.code, sandbox.INTENT_MISMATCH)
+            self.assertIn("application_context.%s" % url_key, caught.exception.detail)
+
+    def test_any_other_part_of_the_request_is_named_too(self):
+        current = self.body()
+        current["intent"] = "AUTHORIZE"
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            main._intent_matches(self.intent(), self.order(),
+                                 self.intent()["payee_ref"], "S1_shop", request=current)
+        self.assertEqual(caught.exception.code, sandbox.INTENT_MISMATCH)
+        self.assertIn("intent", caught.exception.detail)
+
+    def test_an_intent_without_a_saved_request_is_refused_when_one_is_checked(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            main._intent_matches(self.intent(request=None), self.order(),
+                                 self.intent()["payee_ref"], "S1_shop",
+                                 request=self.body())
+        self.assertEqual(caught.exception.code, sandbox.INTENT_MISMATCH)
+        self.assertIn("request", caught.exception.detail)
 
 
 class IntentStateTests(SandboxCase):
@@ -770,13 +896,15 @@ class H56GateTests(unittest.TestCase):
         import shutil
         shutil.rmtree(cls.root, ignore_errors=True)
 
-    def evaluate(self, stamp, dependencies="true", as_of=None):
+    def evaluate(self, stamp, dependencies="true", as_of=None, observed_offset=None):
         from app import main as app_main
         arguments = ["evaluate", "--offer-id", "S-C01", "--business", "shop",
                      "--stamp", stamp, "--host-key", "hostA",
                      "--dependencies", dependencies]
         if as_of:
             arguments += ["--as-of", as_of]
+        if observed_offset:
+            arguments += ["--observed-offset", str(observed_offset)]
         code = app_main.main(arguments)
         assert code == 0, "evaluate failed with %d" % code
         return settings.RUNS_ROOT / ("%s_shop" % stamp)
@@ -835,6 +963,23 @@ class H56GateTests(unittest.TestCase):
             self.gate("20261103T030006Z")
         self.assertEqual(caught.exception.code, sandbox.H56_EVALUATION_STALE)
 
+    def test_expired_evidence_is_refused_even_when_the_request_is_fresh(self):
+        # The auditor's counterexample, whole: the record is legal and self-consistent
+        # -- at evaluation the evidence was 250 seconds old, inside every bound -- and
+        # the request's as_of stays young enough to pass its own check even now. What
+        # has expired is the evidence, and only a check on the evidence can see it. The
+        # bound is tightened to just under the evidence's own age for the measurement,
+        # so the refusal is provably the evidence check's, not the request check's.
+        self.evaluate("20261103T030009Z", observed_offset=250)
+        saved_bound = sandbox.MAX_EVALUATION_AGE_SECONDS
+        try:
+            sandbox.MAX_EVALUATION_AGE_SECONDS = 249
+            with self.assertRaises(sandbox.SandboxError) as caught:
+                self.gate("20261103T030009Z")
+        finally:
+            sandbox.MAX_EVALUATION_AGE_SECONDS = saved_bound
+        self.assertEqual(caught.exception.code, sandbox.H56_EVIDENCE_STALE)
+
     def test_an_evaluation_602_seconds_old_is_stale_too(self):
         # The auditor measured this exact age passing, because the bound was a day.
         # The evaluation is fully self-consistent -- observed_at rides on as_of -- so
@@ -850,6 +995,133 @@ class H56GateTests(unittest.TestCase):
         with self.assertRaises(sandbox.SandboxError) as caught:
             self.gate("20261103T030008Z")
         self.assertEqual(caught.exception.code, sandbox.H56_EVALUATION_FUTURE)
+
+
+class StatusAfterExpiryTests(unittest.TestCase):
+    """An expired proposal must not blind the flow.
+
+    The auditor measured the previous placement: the 900-second check sat before the
+    status branch, so with a fresh re-evaluation in hand and the clock past the window,
+    `status` was refused unread -- zero GETs sent -- exactly when the manual says to
+    check a pending order. Asking what happened to an order this flow already made is
+    not paying on old momentum; only create and capture are.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        import tempfile
+        cls.saved = (settings.RUNS_ROOT, settings.RECORDS_ROOT, sandbox.LiveTransport)
+        cls.saved_env = {}
+        for name, value in (("PAYPAL_CLIENT_ID", "MOCK-CLIENT-ID-NOT-A-CREDENTIAL"),
+                            ("PAYPAL_CLIENT_SECRET", "MOCK-SECRET-NOT-A-CREDENTIAL")):
+            cls.saved_env[name] = os.environ.get(name)
+            os.environ[name] = value
+        cls.root = Path(tempfile.mkdtemp(prefix="h56-expiry-"))
+        settings.RUNS_ROOT = cls.root / "runs"
+        settings.RECORDS_ROOT = cls.root / "records"
+
+    @classmethod
+    def tearDownClass(cls):
+        settings.RUNS_ROOT, settings.RECORDS_ROOT, sandbox.LiveTransport = cls.saved
+        for name, value in cls.saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        import shutil
+        shutil.rmtree(cls.root, ignore_errors=True)
+
+    @staticmethod
+    def stamp_ago(seconds):
+        moment = datetime.datetime.utcnow() - datetime.timedelta(seconds=seconds)
+        return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @classmethod
+    def prepare(cls):
+        """A real evaluation plus an operation past its 900-second proposal window."""
+        from app import main as app_main
+        stamp = "20261103T050001Z"
+        seller = "sb-seller@business.example.com"
+        order_id = "O-EXP000000000001"
+        code = app_main.main(["evaluate", "--offer-id", "S-C01", "--business", "shop",
+                              "--stamp", stamp, "--host-key", "hostExpiry",
+                              "--dependencies", "true"])
+        assert code == 0, "evaluate failed with %d" % code
+        directory = settings.RUNS_ROOT / ("%s_shop" % stamp)
+        intent = {
+            "schema": sandbox.SCHEMA, "step": "create", "state": "ORDER_CREATED",
+            "create_key": "h56-create-" + "c" * 32,
+            "operation_id": "%s_shop" % stamp,
+            "confirmed_at": cls.stamp_ago(901),
+            "offer_id": "S-C01", "amount_minor": 100, "currency": "USD",
+            "payee_ref": sandbox.payee_ref(seller), "order_id": order_id,
+            "assessment_id": "ASSESS:EXPIRED-PROPOSAL",
+        }
+        (directory / "paypal").mkdir(exist_ok=True)
+        (directory / "paypal" / "00_intent.json").write_bytes(
+            sandbox.dumps(intent).encode("utf-8"))
+        return stamp, seller, order_id
+
+    def test_status_answers_past_the_window_and_capture_does_not(self):
+        import io
+        import urllib.parse
+        from contextlib import redirect_stdout
+        from app import main as app_main
+        stamp, seller, order_id = self.prepare()
+        token_reply = sandbox.dumps({
+            "access_token": "MOCK-TOKEN-NOT-A-CREDENTIAL", "token_type": "Bearer",
+            "expires_in": 300, "app_id": "MOCK-APP-ID-NOT-A-CREDENTIAL", "scope": "mock"})
+        order_reply = sandbox.dumps({
+            "id": order_id, "intent": "CAPTURE", "status": "APPROVED",
+            "purchase_units": [{
+                "reference_id": "S-C01",
+                "amount": {"currency_code": "USD", "value": "1.00"},
+                "payee": {"email_address": seller}}],
+            "payer": {"email_address": "sb-buyer@personal.example.com"},
+            "links": [{"rel": "approve", "href": "https://example.com/approve"}]})
+        ORDERS = "/v2/checkout/orders"
+        gets, captures = [], []
+
+        class Recording(sandbox.MockTransport):
+            def _answer(self, method, url, body=None, headers=None):
+                path = urllib.parse.urlsplit(url).path
+                if method == "GET" and path.startswith(ORDERS):
+                    gets.append(path)
+                if method == "POST" and path.endswith("/capture"):
+                    captures.append(path)
+                return sandbox.MockTransport._answer(self, method, url, body, headers)
+
+        routes = {("POST", "/v1/oauth2/token"): (200, token_reply),
+                  ("GET", "%s/%s" % (ORDERS, order_id)): (200, order_reply)}
+        sandbox.LiveTransport = (lambda base, timeout=25:
+                                 Recording(routes))
+
+        def run(step):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = app_main.main(["sandbox", "--step", step, "--offer-id", "S-C01",
+                                      "--business", "shop", "--stamp", stamp,
+                                      "--order-id", order_id])
+            return code, buffer.getvalue()
+
+        # The mock transport stays in place across BOTH runs, and the real one comes
+        # back only after both are done. (The first draft restored it between the runs
+        # and the capture step then reached for the real endpoint -- caught here, and
+        # the reason no test of this flow may hold the patch for less than the whole.)
+        try:
+            code, text = run("status")
+            self.assertEqual(code, 0, text)
+            self.assertEqual(len(gets), 1, "the status query must reach PayPal once")
+            self.assertIn("SANDBOX_PAYPAL_STATUS=APPROVED", text)
+
+            gets.clear(), captures.clear()
+            code, text = run("capture")
+        finally:
+            sandbox.LiveTransport = self.saved[2]
+        self.assertEqual(code, 8, text)
+        self.assertIn("SANDBOX_PROPOSAL_EXPIRED", text)
+        self.assertEqual(captures, [], "no capture may ride on an expired proposal")
 
 
 if __name__ == "__main__":
