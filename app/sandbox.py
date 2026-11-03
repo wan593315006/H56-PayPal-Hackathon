@@ -36,6 +36,7 @@ SCHEMA = "H56_PAYPAL_SANDBOX_V1"
 INTERFACE = "1.0.0"
 
 SANDBOX_BASE = "https://api-m.sandbox.paypal.com"
+API_HOST = "api-m.sandbox.paypal.com"
 
 # Closed on purpose. There is no `production` entry, so `base_url("production")` refuses
 # rather than returning the live host and letting a caller decide what to do about it.
@@ -44,8 +45,17 @@ ENVIRONMENTS = {"sandbox": SANDBOX_BASE}
 TOKEN_PATH = "/v1/oauth2/token"
 ORDERS_PATH = "/v2/checkout/orders"
 
+FORM_TYPE = "application/x-www-form-urlencoded"
+JSON_TYPE = "application/json"
+
 REQUEST_TIMEOUT = 25
 MAX_RESPONSE_BYTES = 262144
+
+# The kernel's own evidence fields expire within minutes and the kernel refuses an expired
+# snapshot at evaluation time, so this bound is not re-deriving that rule. It exists so a
+# capture cannot be hung off an evaluation from a previous day and still call itself
+# "current". Measured in whole seconds against the request's own `as_of`.
+MAX_EVALUATION_AGE_SECONDS = 86400
 
 SANDBOX_HOST_REFUSED = "SANDBOX_HOST_REFUSED"
 ENVIRONMENT_UNKNOWN = "SANDBOX_ENVIRONMENT_UNKNOWN"
@@ -58,8 +68,17 @@ PAYER_NOT_APPROVED = "SANDBOX_PAYER_NOT_APPROVED"
 CAPTURE_AMOUNT_MISMATCH = "SANDBOX_CAPTURE_AMOUNT_MISMATCH"
 CAPTURE_CURRENCY_MISMATCH = "SANDBOX_CAPTURE_CURRENCY_MISMATCH"
 CAPTURE_MISSING = "SANDBOX_CAPTURE_MISSING"
+CAPTURE_PENDING = "SANDBOX_CAPTURE_PENDING"
+ORDER_MISMATCH = "SANDBOX_ORDER_MISMATCH"
 KEY_SEED_INVALID = "SANDBOX_COMMIT_KEY_SEED_INVALID"
 TRANSPORT_REFUSED = "SANDBOX_TRANSPORT_REFUSED"
+H56_RECORD_MISSING = "SANDBOX_H56_RECORD_MISSING"
+H56_RECORD_UNAVAILABLE = "SANDBOX_H56_RECORD_UNAVAILABLE"
+H56_ORDER_MISMATCH = "SANDBOX_H56_ORDER_MISMATCH"
+H56_BINDING_INVALID = "SANDBOX_H56_BINDING_INVALID"
+H56_DECISION_NOT_FEASIBLE = "SANDBOX_H56_DECISION_NOT_FEASIBLE"
+H56_EVALUATION_STALE = "SANDBOX_H56_EVALUATION_STALE"
+RUN_STATE_UNKNOWN = "SANDBOX_RUN_STATE_UNKNOWN"
 
 CREATED = "CREATED"
 APPROVED = "APPROVED"
@@ -99,12 +118,34 @@ def base_url(environment=None):
 
 
 def refuse_production(url):
-    """A host without `sandbox` in it is not a sandbox, whatever it is called."""
+    """A host without `sandbox` in it is not a sandbox, whatever it is called.
+
+    This is the body-level check (callbacks written into an order). The transport-level
+    check is `require_api_endpoint`, which is stricter: containment in a name is not
+    identity, and `sandbox.attacker.invalid` contains "sandbox".
+    """
     host = (urllib.parse.urlsplit(url).hostname or "").lower()
     if not host:
         raise SandboxError(SANDBOX_HOST_REFUSED, "no host in %r" % (url,))
     if "sandbox" not in host:
         raise SandboxError(SANDBOX_HOST_REFUSED, host)
+    return url
+
+
+def require_api_endpoint(url):
+    """Every request this module sends passes through here: https, and this exact host.
+
+    Two earlier accepts were measured by the auditor and both were real: a `https://
+    sandbox.attacker.invalid` passed because the word "sandbox" was in the host, and a
+    plain `http://` URL passed because only the host was ever looked at. A name that
+    merely contains the right word is not the right machine, and a port that speaks the
+    protocol in the clear is not an API endpoint however correct its path.
+    """
+    parts = urllib.parse.urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or host != API_HOST:
+        raise SandboxError(SANDBOX_HOST_REFUSED,
+                           "%s://%s (want https://%s)" % (parts.scheme or "-", host or "-", API_HOST))
     return url
 
 
@@ -135,19 +176,31 @@ def amount_value(amount_minor):
     return "%d.%02d" % (units, cents)
 
 
-def commit_key(seed):
-    """The `PayPal-Request-Id` for a capture, derived from a request digest.
+def operation_key(prefix, seed):
+    """`PayPal-Request-Id` for any operation, derived from that operation's digest.
 
     Derived, not generated: a retry has to present the same key as the attempt it is
     retrying, so a random value or a timestamp would make "retry" indistinguishable from
-    "second charge". The seed is the digest of the request that produced the assessment,
-    which is the only identity the two sides already share.
+    "second charge". The seed is the digest of everything that identifies the operation,
+    so the same operation recomputes the same key from its inputs alone.
     """
     if not isinstance(seed, str) or len(seed) != 64:
         raise SandboxError(KEY_SEED_INVALID, "need a 64-char digest, got %r" % (type(seed).__name__,))
     if any(character not in "0123456789abcdef" for character in seed.lower()):
         raise SandboxError(KEY_SEED_INVALID, "not hexadecimal")
-    return "h56-capture-" + seed[:32]
+    if prefix not in ("capture", "create"):
+        raise SandboxError(KEY_SEED_INVALID, "unknown operation %r" % (prefix,))
+    return "h56-%s-" % prefix + seed[:32]
+
+
+def commit_key(seed):
+    """The `PayPal-Request-Id` for a capture."""
+    return operation_key("capture", seed)
+
+
+def create_key(seed):
+    """The `PayPal-Request-Id` for an order creation."""
+    return operation_key("create", seed)
 
 
 def commit_seed(order_id, amount_minor, currency):
@@ -160,6 +213,29 @@ def commit_seed(order_id, amount_minor, currency):
     amount_value(amount_minor)  # refuses non-integer and non-positive before digesting
     material = {"order_id": str(order_id), "amount_minor": amount_minor,
                 "currency": str(currency)}
+    return hashlib.sha256(
+        json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def create_seed(order, payee_email):
+    """The digest a create key is derived from.
+
+    The capture key has an order id to hold on to; a creation does not, since the order id
+    is what the call is trying to obtain. What identifies a creation is the offer, the
+    amount, the currency and the payee -- so those, and only those, are digested. The
+    payee enters as a digest: the key travels in a request header, and a header is not a
+    place an address should be readable. The same business operation retried after a
+    timeout, a crash or a restart recomputes this seed from its inputs and presents the
+    same key, which is what makes PayPal treat the second attempt as the first one
+    completed rather than a second order.
+    """
+    if not isinstance(order, dict):
+        raise SandboxError(AMOUNT_INVALID, "order is not a mapping")
+    amount_value(order.get("amount_minor"))
+    material = {"intent": "create", "offer_id": str(order.get("offer_id")),
+                "amount_minor": order.get("amount_minor"),
+                "currency": str(order.get("currency")),
+                "payee": _digest(payee_email)}
     return hashlib.sha256(
         json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
@@ -251,12 +327,15 @@ def parse_order(raw):
             break
     payer = document.get("payer") or {}
     email = payer.get("email_address")
+    unit_payee = (unit.get("payee") or {})
+    payee_email = unit_payee.get("email_address")
     return {
         "order_id": document.get("id"),
         "status": (document.get("status") or "").upper() or None,
         "intent": document.get("intent"),
         "currency": amount.get("currency_code"),
         "value": amount.get("value"),
+        "payee_ref": _digest(payee_email) if payee_email else None,
         "approve_url": approve,
         "payer_ref": _digest(email) if email else None,
         "create_time": document.get("create_time"),
@@ -295,7 +374,45 @@ def _digest(text):
     return hashlib.sha256(str(text).encode("utf-8")).hexdigest()[:16]
 
 
+def payee_ref(email):
+    """The public form of the payee digest: what orders and intents carry instead of an
+    address, and what `verify_order` compares the order's own payee against."""
+    return _digest(email)
+
+
 # -------------------------------------------------------------------- state checks
+
+
+def verify_order(view, order_id, order, payee_ref):
+    """Compare the order PayPal holds against the order this run decided on -- first.
+
+    Every one of these facts was available before the capture button and none of them
+    needed the capture response to learn. Checking them afterwards, as the previous
+    version did for the money, means the request has already been sent by the time a
+    mismatch is discovered, and the auditor measured exactly that: a wrong amount was
+    reported after a capture had gone out, and a wrong payee was reported never. The
+    kernel does not know who a payee is; that division of labour is by design. It is why
+    this layer must make the check nobody else makes.
+    """
+    if not isinstance(view, dict):
+        raise SandboxError(ORDER_MISMATCH, "order view is not a mapping")
+    if view.get("order_id") != order_id:
+        raise SandboxError(ORDER_MISMATCH,
+                           "order_id: paypal=%r wanted=%r" % (view.get("order_id"), order_id))
+    if view.get("currency") != order.get("currency"):
+        raise SandboxError(ORDER_MISMATCH,
+                           "currency: paypal=%r wanted=%r" % (view.get("currency"), order.get("currency")))
+    if view.get("value") != amount_value(order.get("amount_minor")):
+        raise SandboxError(ORDER_MISMATCH,
+                           "amount: paypal=%r wanted=%r" % (view.get("value"),
+                                                            amount_value(order.get("amount_minor"))))
+    if not payee_ref or view.get("payee_ref") != payee_ref:
+        # Absent counts as mismatched: a payee PayPal does not name is a payee nobody
+        # here can vouch for, and "probably the merchant" is not a verification.
+        raise SandboxError(ORDER_MISMATCH,
+                           "payee: paypal=%s wanted=%s"
+                           % (view.get("payee_ref") or "ABSENT", payee_ref or "ABSENT"))
+    return True
 
 
 def capture_preconditions(view, decision=None):
@@ -304,7 +421,9 @@ def capture_preconditions(view, decision=None):
     `decision` is accepted so the record can show both facts side by side, and it is
     deliberately not consulted. Passing it in and ignoring it would be a smell if this
     were a general-purpose function; here the whole point is that the governance verdict
-    has no standing in this question, so the parameter is stored, not read.
+    has no standing in this question, so the parameter is stored, not read. The command
+    layer is what makes the four legs a conjunction: policy, verdict, binding and this
+    approval all have to hold, and no one of them stands in for another.
     """
     status = (view or {}).get("status")
     if status == COMPLETED:
@@ -316,7 +435,14 @@ def capture_preconditions(view, decision=None):
 
 
 def verify_capture(captured, expected_minor, expected_currency):
-    """Compare what was captured with what the catalogue admitted. Strings, not numbers."""
+    """Compare what was captured with what the catalogue admitted. Strings, not numbers.
+
+    The capture status is returned, not swallowed: `COMPLETED` and `PENDING` are both
+    acceptable answers from PayPal and they are not the same answer. One means the money
+    moved; the other means PayPal has accepted the request and said nothing yet about
+    money. The caller prints different words for them and exits differently, because a
+    pending capture counted as a completed one is a payment accepted that never happened.
+    """
     want = amount_value(expected_minor)
     if captured.get("value") != want:
         raise SandboxError(CAPTURE_AMOUNT_MISMATCH,
@@ -327,7 +453,7 @@ def verify_capture(captured, expected_minor, expected_currency):
     if captured.get("capture_status") not in (COMPLETED, "PENDING"):
         raise SandboxError(ORDER_STATE_UNEXPECTED,
                            "capture_status=%r" % (captured.get("capture_status"),))
-    return True
+    return captured.get("capture_status")
 
 
 # ---------------------------------------------------------------------- transport
@@ -338,6 +464,7 @@ class Transport:
 
     def __init__(self):
         self.calls = []
+        self.headers_log = []
 
     def post(self, url, body, headers):
         raise NotImplementedError
@@ -345,23 +472,48 @@ class Transport:
     def get(self, url, headers):
         raise NotImplementedError
 
-    def record(self, method, url):
+    def record(self, method, url, headers=None):
         self.calls.append((method, url))
+        self.headers_log.append(dict(headers or {}))
         return len(self.calls)
 
 
+def encode_request(body, headers):
+    """Encode a POST body the way it will actually go on the wire.
+
+    The caller's Content-Type decides the encoding, and the caller's Content-Type is
+    never overwritten. The token endpoint was previously sent as JSON with a form header
+    pasted over it -- a request PayPal documents as form-encoded, carrying a JSON body
+    that the documented parser has no reason to read. Nothing about that failure is
+    visible to a mock that only replays responses, which is why the bytes are built here,
+    in one place, where a test can hold them.
+    """
+    all_headers = dict(headers)
+    content_type = all_headers.get("Content-Type")
+    if content_type and content_type not in (FORM_TYPE, JSON_TYPE):
+        raise SandboxError(TRANSPORT_REFUSED, "content type %r is not one this module speaks" % content_type)
+    if content_type == FORM_TYPE:
+        if not isinstance(body, dict):
+            raise SandboxError(TRANSPORT_REFUSED, "a form body must be a mapping")
+        payload = urllib.parse.urlencode(body).encode("ascii")
+    else:
+        payload = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        if not content_type:
+            all_headers["Content-Type"] = JSON_TYPE
+    return payload, all_headers
+
+
 class MockTransport(Transport):
-    """Replays canned responses. Not a stub: it enforces the host rule like the live one."""
+    """Replays canned responses. Not a stub: it enforces the endpoint rule like the live one."""
 
     def __init__(self, routes=None):
         Transport.__init__(self)
         self.routes = dict(routes or {})
         self.bodies = []
 
-    def _answer(self, method, url, body=None):
-        refuse_production(url)
-        refuse_production_host(urllib.parse.urlsplit(url).hostname or "", "url")
-        self.record(method, url)
+    def _answer(self, method, url, body=None, headers=None):
+        require_api_endpoint(url)
+        self.record(method, url, headers)
         if body is not None:
             self.bodies.append(body)
         key = (method, urllib.parse.urlsplit(url).path)
@@ -373,24 +525,64 @@ class MockTransport(Transport):
         return status, payload
 
     def post(self, url, body, headers):
-        return self._answer("POST", url, body)
+        return self._answer("POST", url, body, headers)
 
     def get(self, url, headers):
-        return self._answer("GET", url)
+        return self._answer("GET", url, None, headers)
+
+
+class SpyTransport(Transport):
+    """Records the exact payload bytes and headers, then answers from `routes`.
+
+    The mock above answers from routes but keeps the body as the caller handed it over;
+    this one sits where `LiveTransport` sits and sees what the wire would see. The
+    auditor's interception found a JSON token body under a form header; the only test
+    that can catch that shape is one that reads the encoded bytes, so the bytes are what
+    this transport records.
+    """
+
+    def __init__(self, routes=None):
+        Transport.__init__(self)
+        self.routes = dict(routes or {})
+        self.sent = []
+
+    def _answer(self, method, url, payload, headers):
+        require_api_endpoint(url)
+        self.record(method, url, headers)
+        self.sent.append((method, url, payload, dict(headers or {})))
+        key = (method, urllib.parse.urlsplit(url).path)
+        if key not in self.routes:
+            return 599, b"{}"
+        status, body = self.routes[key]
+        return status, body.encode("utf-8") if isinstance(body, str) else body
+
+    def post(self, url, body, headers):
+        payload, all_headers = encode_request(body, headers)
+        return self._answer("POST", url, payload, all_headers)
+
+    def get(self, url, headers):
+        return self._answer("GET", url, None, headers)
 
 
 class LiveTransport(Transport):
-    """Real HTTP, sandbox only. Constructing it with any other host refuses immediately."""
+    """Real HTTP, and only to the one pinned sandbox API host.
+
+    Constructing it with any other host refuses immediately, and every request is
+    re-checked against the pinned host before it is sent -- `self.base` is a value, and
+    values can be held wrong by a caller; the endpoint check is the thing that runs.
+    """
 
     def __init__(self, base, timeout=REQUEST_TIMEOUT):
         Transport.__init__(self)
-        self.base = refuse_production(base)
+        if base != SANDBOX_BASE:
+            raise SandboxError(SANDBOX_HOST_REFUSED,
+                               "%s (want %s)" % (base, SANDBOX_BASE))
+        self.base = base
         self.timeout = timeout
 
     def _send(self, method, url, payload, headers):
-        refuse_production(url)
-        refuse_production_host(urllib.parse.urlsplit(url).hostname or "", "url")
-        self.record(method, url)
+        require_api_endpoint(url)
+        self.record(method, url, headers)
         request = urllib.request.Request(url, data=payload, method=method)
         for name, value in headers.items():
             request.add_header(name, value)
@@ -404,9 +596,7 @@ class LiveTransport(Transport):
                                "%s: %s" % (type(error).__name__, str(error)[:80])) from None
 
     def post(self, url, body, headers):
-        payload = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        all_headers = dict(headers)
-        all_headers["Content-Type"] = "application/json"
+        payload, all_headers = encode_request(body, headers)
         return self._send("POST", url, payload, all_headers)
 
     def get(self, url, headers):
@@ -462,9 +652,13 @@ class SandboxClient:
         headers.update(extra or {})
         return headers
 
-    def create_order(self, order, payee_email, return_url, cancel_url):
+    def create_order(self, order, payee_email, return_url, cancel_url, request_id=None):
+        """Place the order. `request_id` makes a retry the same request, not a new one."""
         body = create_body(order, payee_email, return_url, cancel_url)
-        status, raw = self.transport.post(self.base + ORDERS_PATH, body, self._headers())
+        headers = self._headers()
+        if request_id:
+            headers["PayPal-Request-Id"] = request_id
+        status, raw = self.transport.post(self.base + ORDERS_PATH, body, headers)
         if status not in (200, 201):
             raise SandboxError(RESPONSE_REFUSED, "create: HTTP %d" % status)
         view = parse_order(raw)

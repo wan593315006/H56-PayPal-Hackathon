@@ -8,8 +8,9 @@ real credential from the shell that started it and cannot leave one behind.
 import json
 import os
 import unittest
+from pathlib import Path
 
-from app import sandbox, settings
+from app import main, sandbox, settings
 
 ORDER_ID = "MOCK-ORDER-00000001"
 CAPTURE_ID = "MOCK-CAPTURE-0000001"
@@ -372,6 +373,294 @@ class RealmTests(SandboxCase):
         self.assertEqual(len(realm["app_id_ref"]), 16)
         self.assertNotIn("MOCK-APP-ID", sandbox.dumps(realm))
         self.assertIn("https://uri.paypal.com/services/payments/payment", realm["scopes"])
+
+
+class TransportEndpointTests(SandboxCase):
+    """The endpoint rule is identity, not containment: measured by the auditor, a host
+    that merely contained the word "sandbox" was accepted, and so was cleartext http."""
+
+    def test_the_pinned_endpoint_is_accepted(self):
+        self.assertEqual(sandbox.require_api_endpoint(sandbox.SANDBOX_BASE + sandbox.TOKEN_PATH),
+                         sandbox.SANDBOX_BASE + sandbox.TOKEN_PATH)
+
+    def test_a_lookalike_host_containing_sandbox_is_refused(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.require_api_endpoint("https://sandbox.attacker.invalid/v1/oauth2/token")
+        self.assertEqual(caught.exception.code, sandbox.SANDBOX_HOST_REFUSED)
+
+    def test_cleartext_http_is_refused_even_on_the_right_host(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.require_api_endpoint("http://api-m.sandbox.paypal.com/v1/oauth2/token")
+        self.assertEqual(caught.exception.code, sandbox.SANDBOX_HOST_REFUSED)
+
+    def test_the_production_host_is_refused_here_too(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.require_api_endpoint("https://api-m.paypal.com/v1/oauth2/token")
+        self.assertEqual(caught.exception.code, sandbox.SANDBOX_HOST_REFUSED)
+
+    def test_the_live_transport_refuses_a_lookalike_base_at_construction(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.LiveTransport("https://sandbox.attacker.invalid")
+        self.assertEqual(caught.exception.code, sandbox.SANDBOX_HOST_REFUSED)
+
+    def test_the_mock_enforces_the_same_endpoint_rule_as_the_wire(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.MockTransport().post("https://api-m.paypal.com/v1/oauth2/token",
+                                         {}, {})
+        self.assertEqual(caught.exception.code, sandbox.SANDBOX_HOST_REFUSED)
+
+
+class WireFormatTests(SandboxCase):
+    """What actually goes on the wire, caught by sitting where LiveTransport sits.
+
+    The auditor's interception found a JSON token body travelling under a form header;
+    a mock that only replays responses never sees that shape, so the bytes are recorded
+    and asserted here.
+    """
+
+    SPY_ROUTES = {("POST", "/v1/oauth2/token"): (200, raw(TOKEN_REPLY)),
+                  ("POST", "/v2/checkout/orders"): (201, raw(order_document("CREATED")))}
+
+    def test_the_token_is_sent_as_a_form_and_the_header_is_not_overwritten(self):
+        transport = sandbox.SpyTransport(self.SPY_ROUTES)
+        client = sandbox.SandboxClient(transport, sandbox.SANDBOX_BASE)
+        client.token()
+        method, url, payload, headers = transport.sent[0]
+        self.assertEqual(payload, b"grant_type=client_credentials")
+        self.assertEqual(headers.get("Content-Type"),
+                         sandbox.FORM_TYPE)
+        self.assertTrue(headers.get("Authorization", "").startswith("Basic "))
+
+    def test_an_order_is_sent_as_json_with_its_request_id(self):
+        transport = sandbox.SpyTransport(self.SPY_ROUTES)
+        client = sandbox.SandboxClient(transport, sandbox.SANDBOX_BASE)
+        client.create_order(order(), "sb-seller@business.example.com",
+                            "https://example.com/r", "https://example.com/c",
+                            request_id="h56-create-" + "a" * 32)
+        method, url, payload, headers = transport.sent[-1]
+        self.assertEqual(headers.get("Content-Type"), sandbox.JSON_TYPE)
+        self.assertEqual(headers.get("PayPal-Request-Id"), "h56-create-" + "a" * 32)
+        body = json.loads(payload.decode("utf-8"))
+        self.assertEqual(body["purchase_units"][0]["amount"]["value"], "1.00")
+
+    def test_an_unspeakable_content_type_is_refused_before_any_byte_is_built(self):
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.encode_request({}, {"Content-Type": "application/xml"})
+        self.assertEqual(caught.exception.code, sandbox.TRANSPORT_REFUSED)
+
+
+class OrderVerificationTests(SandboxCase):
+    """Identity, money and payee, checked against what PayPal holds -- before capture."""
+
+    def test_parse_order_names_the_payee_as_a_reference(self):
+        view = sandbox.parse_order(raw(order_document()))
+        self.assertEqual(view["payee_ref"],
+                         sandbox.payee_ref("sb-seller@business.example.com"))
+
+    def test_a_matching_order_verifies(self):
+        view = sandbox.parse_order(raw(order_document()))
+        self.assertTrue(sandbox.verify_order(view, ORDER_ID, order(),
+                                             sandbox.payee_ref("sb-seller@business.example.com")))
+
+    def _refused(self, document, order_id=ORDER_ID, payee=None):
+        view = sandbox.parse_order(raw(document))
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.verify_order(view, order_id, order(),
+                                 payee or sandbox.payee_ref("sb-seller@business.example.com"))
+        self.assertEqual(caught.exception.code, sandbox.ORDER_MISMATCH)
+
+    def test_a_different_order_id_is_refused(self):
+        self._refused(order_document(), order_id="O-OTHER")
+
+    def test_a_different_amount_is_refused_before_any_capture(self):
+        self._refused(order_document(value="2.00"))
+
+    def test_a_different_currency_is_refused_before_any_capture(self):
+        self._refused(order_document(currency="EUR"))
+
+    def test_an_unnamed_payee_is_refused_rather_than_assumed(self):
+        document = order_document()
+        del document["purchase_units"][0]["payee"]
+        self._refused(document)
+
+    def test_a_different_payee_is_refused(self):
+        self._refused(order_document(), payee=sandbox.payee_ref("sb-other@business.example.com"))
+
+
+class PendingCaptureTests(SandboxCase):
+    """A pending capture is an accepted request, not money that moved."""
+
+    def test_a_pending_capture_is_reported_as_pending_not_successful(self):
+        captured = sandbox.parse_capture(raw(capture_document(status="PENDING")))
+        self.assertEqual(sandbox.verify_capture(captured, 100, "USD"), "PENDING")
+
+    def test_a_completed_capture_is_reported_as_completed(self):
+        captured = sandbox.parse_capture(raw(capture_document()))
+        self.assertEqual(sandbox.verify_capture(captured, 100, "USD"), "COMPLETED")
+
+    def test_a_declined_capture_is_still_refused(self):
+        captured = sandbox.parse_capture(raw(capture_document(status="DECLINED")))
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            sandbox.verify_capture(captured, 100, "USD")
+        self.assertEqual(caught.exception.code, sandbox.ORDER_STATE_UNEXPECTED)
+
+
+class CreateKeyTests(SandboxCase):
+    """The create has its own derived key: same operation, same key, whatever restarted."""
+
+    def test_the_create_key_is_stable_and_prefixed(self):
+        seed = sandbox.create_seed(order(), "sb-seller@business.example.com")
+        self.assertEqual(sandbox.create_key(seed), sandbox.create_key(seed))
+        self.assertTrue(sandbox.create_key(seed).startswith("h56-create-"))
+
+    def test_different_operations_have_different_keys(self):
+        seed = sandbox.create_seed(order(), "sb-seller@business.example.com")
+        variants = {sandbox.create_key(seed),
+                    sandbox.create_key(sandbox.create_seed(
+                        order(amount_minor=2500), "sb-seller@business.example.com")),
+                    sandbox.create_key(sandbox.create_seed(
+                        order(), "sb-other@business.example.com")),
+                    sandbox.create_key(sandbox.create_seed(
+                        order(offer_id="S-C02"), "sb-seller@business.example.com"))}
+        self.assertEqual(len(variants), 4)
+
+    def test_the_capture_key_is_unchanged(self):
+        self.assertEqual(sandbox.commit_key("c" * 64).startswith("h56-capture-"), True)
+
+    def test_an_unknown_operation_or_bad_seed_is_refused(self):
+        with self.assertRaises(sandbox.SandboxError):
+            sandbox.operation_key("refund", "c" * 64)
+        with self.assertRaises(sandbox.SandboxError):
+            sandbox.create_key("not-a-digest")
+
+
+class IntentStateTests(SandboxCase):
+    """The persisted state before a send: what a crash leaves behind has a name."""
+
+    def setUp(self):
+        SandboxCase.setUp(self)
+        import tempfile
+        self.root = Path(tempfile.mkdtemp(prefix="h56-intent-"))
+        self.directory = self.root / "20261103T030000Z_shop"
+        (self.directory / "paypal").mkdir(parents=True)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.root, ignore_errors=True)
+        SandboxCase.tearDown(self)
+
+    def test_a_directory_without_an_intent_is_not_an_error(self):
+        empty = self.root / "20261103T030100Z_shop"
+        empty.mkdir()
+        self.assertIsNone(main._read_intent(empty))
+
+    def test_an_unparsable_intent_is_an_unnamed_state(self):
+        (self.directory / "paypal" / "00_intent.json").write_bytes(b"{not json")
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            main._read_intent(self.directory)
+        self.assertEqual(caught.exception.code, sandbox.RUN_STATE_UNKNOWN)
+
+    def test_an_intent_without_a_key_is_an_unnamed_state(self):
+        (self.directory / "paypal" / "00_intent.json").write_bytes(b'{"state":"PENDING_SEND"}')
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            main._read_intent(self.directory)
+        self.assertEqual(caught.exception.code, sandbox.RUN_STATE_UNKNOWN)
+
+    def test_a_written_intent_round_trips(self):
+        main._write_intent(self.directory, {"create_key": "h56-create-" + "a" * 32,
+                                            "state": "PENDING_SEND"})
+        intent = main._read_intent(self.directory)
+        self.assertEqual(intent["create_key"], "h56-create-" + "a" * 32)
+
+
+class H56GateTests(unittest.TestCase):
+    """The execution gate, against a real evaluation: real chain, real kernel record.
+
+    The auditor's measurement was that create and capture reached the wire with a real
+    INFEASIBLE record in the same directory and the binding consulted zero times. These
+    tests run the actual `evaluate` into temporary roots and then put the gate in front
+    of it, so the refusals are the gate's own, not a stand-in's.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        import tempfile
+        cls.saved = (settings.RUNS_ROOT, settings.RECORDS_ROOT)
+        cls.root = Path(tempfile.mkdtemp(prefix="h56-gate-"))
+        settings.RUNS_ROOT = cls.root / "runs"
+        settings.RECORDS_ROOT = cls.root / "records"
+
+    @classmethod
+    def tearDownClass(cls):
+        settings.RUNS_ROOT, settings.RECORDS_ROOT = cls.saved
+        import shutil
+        shutil.rmtree(cls.root, ignore_errors=True)
+
+    def evaluate(self, stamp, dependencies="true", as_of=None):
+        from app import main as app_main
+        arguments = ["evaluate", "--offer-id", "S-C01", "--business", "shop",
+                     "--stamp", stamp, "--host-key", "hostA",
+                     "--dependencies", dependencies]
+        if as_of:
+            arguments += ["--as-of", as_of]
+        code = app_main.main(arguments)
+        assert code == 0, "evaluate failed with %d" % code
+        return settings.RUNS_ROOT / ("%s_shop" % stamp)
+
+    def gate(self, stamp, offer="S-C01", directory=None):
+        from app import main as app_main, policy
+        catalogue_ = policy.load_catalog()
+        offer_doc = next(o for o in catalogue_["offers"] if o["offer_id"] == offer)
+        chain_order = {"offer_id": offer_doc["offer_id"],
+                       "description": offer_doc["description"],
+                       "amount_minor": offer_doc["amount_minor"],
+                       "currency": offer_doc["currency"], "payee": offer_doc["payee"]}
+        return app_main._h56_gate(stamp, "shop", chain_order, catalogue_,
+                                  directory=directory, records_root=settings.RECORDS_ROOT)
+
+    def test_a_feasible_run_passes_the_gate_and_names_its_assessment(self):
+        directory = self.evaluate("20261103T030001Z")
+        gate = self.gate("20261103T030001Z")
+        self.assertEqual(gate["decision"], "FEASIBLE")
+        self.assertTrue(str(gate["assessment_id"]).startswith("ASSESS:"))
+        self.assertLess(gate["evaluation_age_seconds"], sandbox.MAX_EVALUATION_AGE_SECONDS)
+        self.assertEqual(gate["directory"], directory)
+
+    def test_an_infeasible_run_is_refused_by_the_gate(self):
+        self.evaluate("20261103T030002Z", dependencies="false")
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            self.gate("20261103T030002Z")
+        self.assertEqual(caught.exception.code, sandbox.H56_DECISION_NOT_FEASIBLE)
+
+    def test_an_edited_verdict_is_refused_by_the_binding(self):
+        directory = self.evaluate("20261103T030003Z")
+        result = json.loads((directory / "result.json").read_bytes().decode("utf-8"))
+        result["decision"] = "INFEASIBLE"
+        (directory / "result.json").write_bytes(
+            json.dumps(result, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            self.gate("20261103T030003Z")
+        self.assertEqual(caught.exception.code, sandbox.H56_BINDING_INVALID)
+
+    def test_executing_a_different_offer_is_refused(self):
+        self.evaluate("20261103T030004Z")
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            self.gate("20261103T030004Z", offer="S-C03")
+        self.assertEqual(caught.exception.code, sandbox.H56_ORDER_MISMATCH)
+
+    def test_a_missing_evaluation_file_is_a_missing_record(self):
+        directory = self.evaluate("20261103T030005Z")
+        (directory / "binding.json").unlink()
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            self.gate("20261103T030005Z")
+        self.assertEqual(caught.exception.code, sandbox.H56_RECORD_MISSING)
+
+    def test_an_evaluation_from_yesterday_is_stale(self):
+        self.evaluate("20261103T030006Z", as_of="2020-01-01T00:00:00Z")
+        with self.assertRaises(sandbox.SandboxError) as caught:
+            self.gate("20261103T030006Z")
+        self.assertEqual(caught.exception.code, sandbox.H56_EVALUATION_STALE)
 
 
 if __name__ == "__main__":

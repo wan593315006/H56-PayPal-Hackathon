@@ -5,6 +5,7 @@ and answers it from bytes, not from a version string. Each check prints one line
 the measured value, so a failure says what it saw rather than that something is wrong.
 """
 import argparse
+import datetime
 import hashlib
 import io
 import json
@@ -620,19 +621,133 @@ def sandbox_parser(sub):
     parser.add_argument("--order-id", default=None,
                         help="the PayPal order id (needed by status and capture)")
     parser.add_argument("--stamp", default=None,
-                        help="same stamp for create and capture; defaults to now")
+                        help="same stamp for evaluate, create and capture; defaults to now")
     parser.add_argument("--business", default="shop")
-    parser.add_argument("--decision", default=None,
-                        help="the governance verdict, recorded beside the state and never "
-                             "used in place of the buyer's approval")
     return parser
 
 
-def _sandbox_directory(stamp, business, create):
-    """A run directory is created once and then only reopened -- never reused silently."""
-    if create:
-        return settings.run_directory(stamp, business)
-    return settings.existing_run_directory(stamp, business)
+def _intent_path(directory):
+    return directory / "paypal" / "00_intent.json"
+
+
+def _read_intent(directory):
+    """The persisted operation state, or None when this flow has not started here.
+
+    A directory that exists with an unparsable or keyless intent file is a state this
+    flow cannot name, and proceeding would mean sending requests whose retry identity is
+    unknown. It refuses instead: an unnamed state is not an empty one.
+    """
+    from . import sandbox
+    path = _intent_path(directory)
+    if not path.is_file():
+        return None
+    try:
+        intent = json.loads(path.read_bytes().decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise sandbox.SandboxError(
+            sandbox.RUN_STATE_UNKNOWN, "00_intent.json is not parsable") from None
+    if not isinstance(intent, dict) or not intent.get("create_key"):
+        raise sandbox.SandboxError(
+            sandbox.RUN_STATE_UNKNOWN, "00_intent.json carries no create_key")
+    return intent
+
+
+def _write_intent(directory, intent):
+    path = _intent_path(directory)
+    path.parent.mkdir(exist_ok=True)
+    path.write_bytes(hostproof.dumps(intent).encode("utf-8"))
+    return path
+
+
+def _h56_gate(stamp, business, order, catalogue, directory=None, records_root=None):
+    """The three local legs of the execution gate, re-checked at the moment of execution.
+
+    Four legs must hold before money moves, and the auditor measured what happens when
+    they are not a conjunction: with a real INFEASIBLE record sitting in this very run
+    directory, create and capture both reached the wire, and the binding was consulted
+    zero times. The four legs are:
+
+    * payment policy -- the catalogue admits this offer at this amount (settled by the
+      caller, which builds the order from the catalogue rather than from a flag);
+    * the H56 verdict -- read from the result this run wrote, never from a command line.
+      A verdict a caller can type is not a verdict, it is a wish, and `--decision` is
+      gone;
+    * the binding -- `binding.audit` against the kernel's own record, run now, at
+      execution time, not assumed from whenever the evaluation happened;
+    * the buyer's approval -- PayPal's APPROVED, checked by the capture step, because it
+      is PayPal's fact and no local record can stand in for it.
+
+    Everything here is re-derivable from bytes on disk plus one kernel read, so the gate
+    is cheap, and it runs on every execution step for exactly that reason.
+    """
+    from . import binding as app_binding, h56bridge, sandbox
+
+    if directory is None:
+        directory = settings.existing_run_directory(stamp, business)
+
+    def read(name):
+        path = directory / name
+        if not path.is_file():
+            raise sandbox.SandboxError(sandbox.H56_RECORD_MISSING, name)
+        return path.read_bytes()
+
+    try:
+        result = json.loads(read("result.json").decode("utf-8"))
+        request = json.loads(read("request.json").decode("utf-8"))
+        binding_doc = json.loads(read("binding.json").decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise sandbox.SandboxError(
+            sandbox.H56_RECORD_MISSING, "unreadable: %s" % type(error).__name__) from None
+    evidence_raw = read("evidence.json")
+
+    evaluated = result.get("order") or {}
+    differing = [key for key in ("offer_id", "amount_minor", "currency", "payee")
+                 if evaluated.get(key) != order.get(key)]
+    if differing:
+        raise sandbox.SandboxError(
+            sandbox.H56_ORDER_MISMATCH,
+            "%s: evaluated=%r execution=%r"
+            % (",".join(differing), [evaluated.get(key) for key in differing],
+               [order.get(key) for key in differing]))
+
+    records = (Path(records_root) if records_root is not None
+               else Path(settings.RECORDS_ROOT).absolute())
+
+    def open_record(session, reference):
+        store = h56bridge.kernel()[1].RecordStore(records, session, create=False)
+        return store.view(reference)["record"]
+
+    # The gate uses the same audit the verify command uses, and hands in only the
+    # loader: when to consult the store and how a refusal becomes a code are decisions
+    # that live in one place, because two copies of that rule is one copy edited alone.
+    findings, kernel_record = app_binding.audit(
+        binding_doc, catalogue, result, request, evidence_raw, open_record)
+    if findings:
+        raise sandbox.SandboxError(
+            sandbox.H56_BINDING_INVALID,
+            ",".join(item if isinstance(item, str) else "/".join(item)
+                     for item in findings[:6]))
+
+    decision = result.get("decision")
+    if decision != "FEASIBLE":
+        raise sandbox.SandboxError(
+            sandbox.H56_DECISION_NOT_FEASIBLE, str(decision))
+
+    as_of = request.get("as_of")
+    try:
+        moment = datetime.datetime.strptime(as_of, "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError):
+        raise sandbox.SandboxError(
+            sandbox.H56_RECORD_MISSING, "request has no usable as_of") from None
+    age = int((datetime.datetime.utcnow() - moment).total_seconds())
+    if age > sandbox.MAX_EVALUATION_AGE_SECONDS:
+        raise sandbox.SandboxError(
+            sandbox.H56_EVALUATION_STALE, "as_of=%s age=%ds" % (as_of, age))
+
+    return {"assessment_id": result.get("assessment_id"), "decision": decision,
+            "as_of": as_of, "evaluation_age_seconds": age,
+            "session": binding_doc.get("session"), "directory": directory,
+            "kernel_record": kernel_record}
 
 
 def _sandbox_write(directory, name, document):
@@ -644,11 +759,15 @@ def _sandbox_write(directory, name, document):
 
 
 def sandbox_command(arguments):
-    """Four steps, one round trip, and one rule that is not negotiable.
+    """Four steps, and one conjunction that is not negotiable.
 
-    `plan` reads nothing. `create` needs credentials. `status` and `capture` need an order id.
-    `capture` refuses unless PayPal reports the order APPROVED: the H56 verdict, if given,
-    is written into the record beside that state and is not consulted when deciding.
+    `plan` reads nothing. `create` passes the H56 gate (offline, before the credentials
+    are even read), proves the credentials, persists its intent with the idempotency key
+    before sending, and reuses or reconciles on retry. `status` observes. `capture`
+    passes the gate again, binds itself to the intent's order and assessment, verifies
+    the order PayPal holds against the order this run decided on -- identity, amount,
+    currency, payee, all before the capture request -- then requires APPROVED, then
+    captures. A PENDING capture is reported as accepted-not-settled and exits non-zero.
     """
     from . import policy, sandbox
 
@@ -695,15 +814,70 @@ def sandbox_command(arguments):
         if arguments.step == "create":
             if not arguments.payee_email:
                 raise sandbox.SandboxError("SANDBOX_PAYEE_REQUIRED", "--payee-email")
-            # Order matters, and it is the reverse of the obvious one. The token call
-            # proves the credentials; the directory is created next, so a duplicate stamp
-            # stops here; only then is an order placed. Doing it the other way round would
-            # leave either an empty run directory (when credentials are missing) or a real
-            # order with nowhere to record it (when the stamp collides).
+            # The gate runs before anything else: offline, no credential read, no byte
+            # sent. The auditor measured the previous order of operations -- a real
+            # INFEASIBLE record in this very directory, and create reaching the wire with
+            # the binding consulted zero times. Policy, verdict and binding are local
+            # facts; they are settled before the credentials are even read.
+            gate = _h56_gate(stamp, arguments.business, order, catalogue)
             client.token()
-            directory = _sandbox_directory(stamp, arguments.business, create=True)
+            payee_ref = sandbox.payee_ref(arguments.payee_email)
+            create_key = sandbox.create_key(sandbox.create_seed(order, arguments.payee_email))
+            # Reuse or create the run state, and never guess which. A directory without
+            # an intent belongs to the evaluation that made it, and gains one now. A
+            # directory whose intent already carries an order id is a create that may
+            # have completed before its process died: reconciliation asks PayPal rather
+            # than creating again, because with the idempotency key the second create
+            # would be safe but the question "what did the first one do" would stay open.
+            try:
+                directory = settings.existing_run_directory(stamp, arguments.business)
+            except settings.RunPathError:
+                directory = settings.run_directory(stamp, arguments.business)
+                intent = None
+            else:
+                intent = _read_intent(directory)
+            if intent is not None and intent.get("order_id"):
+                view = client.read_order(intent["order_id"])
+                sandbox.verify_order(view, intent["order_id"], order, payee_ref)
+                document = {
+                    "schema": sandbox.SCHEMA, "step": "reconcile",
+                    "stamp": stamp, "business": arguments.business,
+                    "create_key": intent["create_key"], "order_id": intent["order_id"],
+                    "response": view,
+                    "h56": {"assessment_id": gate["assessment_id"],
+                            "decision": gate["decision"]},
+                }
+                path = _sandbox_write(directory, "04_reconcile.json", document)
+                print("SANDBOX_RECONCILED=True")
+                print("SANDBOX_ORDER_ID=%s" % view["order_id"])
+                print("SANDBOX_PAYPAL_STATUS=%s" % view["status"])
+                print("SANDBOX_CREATE_KEY=%s" % intent["create_key"])
+                print("SANDBOX_TRANSPORT_CALLS=%d" % len(transport.calls))
+                print("SANDBOX_EVIDENCE=%s" % path)
+                print("SANDBOX_EXIT=0")
+                return EXIT_OK
+            if intent is None:
+                # The intent is on disk before the send: key, amount, payee reference and
+                # state. A timeout or a crash after this point leaves enough behind to
+                # name the operation, reuse its key, and ask what happened -- which is
+                # the whole difference between a retry and a second order.
+                intent = {
+                    "schema": sandbox.SCHEMA, "step": "create", "state": "PENDING_SEND",
+                    "create_key": create_key,
+                    "offer_id": order["offer_id"], "amount_minor": order["amount_minor"],
+                    "currency": order["currency"], "payee_ref": payee_ref,
+                    "request": sandbox.redact(sandbox.create_body(
+                        order, arguments.payee_email, arguments.return_url,
+                        arguments.cancel_url)),
+                    "assessment_id": gate["assessment_id"], "h56_decision": gate["decision"],
+                }
+                _write_intent(directory, intent)
             view = client.create_order(order, arguments.payee_email,
-                                       arguments.return_url, arguments.cancel_url)
+                                       arguments.return_url, arguments.cancel_url,
+                                       request_id=create_key)
+            intent["state"] = "ORDER_CREATED"
+            intent["order_id"] = view["order_id"]
+            _write_intent(directory, intent)
             document = {
                 "schema": sandbox.SCHEMA, "interface": sandbox.INTERFACE,
                 "step": "create", "stamp": stamp, "business": arguments.business,
@@ -711,7 +885,9 @@ def sandbox_command(arguments):
                 "request": sandbox.redact(sandbox.create_body(
                     order, arguments.payee_email, arguments.return_url, arguments.cancel_url)),
                 "response": view,
-                "h56_decision": arguments.decision,
+                "create_key": create_key,
+                "token_realm": client.realm(),
+                "h56": {"assessment_id": gate["assessment_id"], "decision": gate["decision"]},
                 "authority_granted": False,
                 "note": ("The buyer has not acted yet. `authority_granted` stays False until "
                          "PayPal reports APPROVED, whatever H56 decided."),
@@ -720,6 +896,9 @@ def sandbox_command(arguments):
             print("SANDBOX_ORDER_ID=%s" % view["order_id"])
             print("SANDBOX_STATUS=%s" % view["status"])
             print("SANDBOX_APPROVE_URL=%s" % (view["approve_url"] or "-"))
+            print("SANDBOX_H56_DECISION=%s" % gate["decision"])
+            print("SANDBOX_ASSESSMENT=%s" % gate["assessment_id"])
+            print("SANDBOX_CREATE_KEY=%s" % create_key)
             print("SANDBOX_AUTHORITY_GRANTED=False")
             print("SANDBOX_TRANSPORT_CALLS=%d" % len(transport.calls))
             print("SANDBOX_EVIDENCE=%s" % path)
@@ -729,9 +908,23 @@ def sandbox_command(arguments):
         if not arguments.order_id:
             raise sandbox.SandboxError("SANDBOX_ORDER_ID_REQUIRED", "--order-id")
 
-        # Resolve the evidence directory before touching the network. A capture whose
-        # record has nowhere to go is money moved without a receipt.
-        directory = _sandbox_directory(stamp, arguments.business, create=False)
+        # The capture path re-walks every local leg. The gate comes first, then the
+        # intent -- which is what binds this capture to the create this flow made, to
+        # this order id, and to this assessment -- and only then the network.
+        directory = settings.existing_run_directory(stamp, arguments.business)
+        gate = _h56_gate(stamp, arguments.business, order, catalogue, directory=directory)
+        intent = _read_intent(directory)
+        if not intent or not intent.get("order_id"):
+            raise sandbox.SandboxError(
+                sandbox.RUN_STATE_UNKNOWN, "capture needs a create this flow recorded")
+        if intent["order_id"] != arguments.order_id:
+            raise sandbox.SandboxError(
+                sandbox.ORDER_MISMATCH,
+                "intent order_id=%s, requested=%s" % (intent["order_id"], arguments.order_id))
+        if intent.get("assessment_id") and intent["assessment_id"] != gate["assessment_id"]:
+            raise sandbox.SandboxError(
+                sandbox.H56_ORDER_MISMATCH, "the assessment moved between create and capture")
+
         view = client.read_order(arguments.order_id)
         print("SANDBOX_PAYPAL_STATUS=%s" % view["status"])
         print("SANDBOX_PAYER_REF=%s" % (view["payer_ref"] or "-"))
@@ -739,7 +932,8 @@ def sandbox_command(arguments):
         if arguments.step == "status":
             document = {"schema": sandbox.SCHEMA, "step": "status",
                         "order_id": arguments.order_id, "response": view,
-                        "h56_decision": arguments.decision,
+                        "h56": {"assessment_id": gate["assessment_id"],
+                                "decision": gate["decision"]},
                         "authority_granted": view["status"] == sandbox.APPROVED}
             path = _sandbox_write(directory, "02_order_state.json", document)
             print("SANDBOX_AUTHORITY_GRANTED=%s" % document["authority_granted"])
@@ -748,10 +942,14 @@ def sandbox_command(arguments):
             print("SANDBOX_EXIT=0")
             return EXIT_OK
 
-        # capture
-        state = sandbox.capture_preconditions(view, arguments.decision)
+        # capture. Identity, money and payee are checked against what PayPal actually
+        # holds, before the capture request exists -- the auditor measured the previous
+        # order: a wrong amount reported after the capture had gone out, a wrong payee
+        # reported never.
+        sandbox.verify_order(view, arguments.order_id, order, intent.get("payee_ref"))
+        state = sandbox.capture_preconditions(view)
         print("SANDBOX_PRECONDITION=%s" % state)
-        print("SANDBOX_H56_DECISION=%s" % (arguments.decision or "-"))
+        print("SANDBOX_H56_DECISION=%s" % gate["decision"])
         if state == sandbox.ALREADY_CAPTURED:
             print("SANDBOX_ALREADY_CAPTURED=True")
             print("SANDBOX_NOTE=order was already captured; nothing was charged again")
@@ -760,21 +958,34 @@ def sandbox_command(arguments):
         seed = sandbox.commit_seed(arguments.order_id, order["amount_minor"], order["currency"])
         captured = client.capture_order(arguments.order_id, seed,
                                         order["amount_minor"], order["currency"])
+        settled = captured["capture_status"] == sandbox.COMPLETED
         document = {"schema": sandbox.SCHEMA, "step": "capture",
                     "order_id": arguments.order_id, "capture": captured,
                     "commit_key": sandbox.commit_key(seed),
-                    "h56_decision": arguments.decision,
+                    "settled": settled, "capture_state": captured["capture_status"],
+                    "h56": {"assessment_id": gate["assessment_id"],
+                            "decision": gate["decision"]},
                     "authority_granted": True,
-                    "note": ("Capture succeeded only because PayPal reported APPROVED. "
-                             "The governance verdict is recorded, not consulted.")}
+                    "note": ("Capture proceeded only because PayPal reported APPROVED and "
+                             "the H56 gate held. A PENDING capture is an accepted request, "
+                             "not money that moved.")}
         path = _sandbox_write(directory, "03_capture.json", document)
         print("SANDBOX_CAPTURE_ID=%s" % captured["capture_id"])
-        print("SANDBOX_CAPTURED=%s %s" % (captured["currency"], captured["value"]))
-        print("SANDBOX_FEE=%s %s" % (captured["fee_currency"], captured["fee_value"]))
-        print("SANDBOX_NET=%s %s" % (captured["net_currency"], captured["net_value"]))
+        print("SANDBOX_CAPTURE_STATE=%s" % captured["capture_status"])
+        print("SANDBOX_SETTLED=%s" % settled)
+        if settled:
+            print("SANDBOX_CAPTURED=%s %s" % (captured["currency"], captured["value"]))
+            print("SANDBOX_FEE=%s %s" % (captured["fee_currency"], captured["fee_value"]))
+            print("SANDBOX_NET=%s %s" % (captured["net_currency"], captured["net_value"]))
+        else:
+            print("SANDBOX_NOTE=PayPal accepted the capture request; it has not confirmed "
+                  "that money moved, and this exit is not a completed payment")
         print("SANDBOX_COMMIT_KEY=%s" % sandbox.commit_key(seed))
         print("SANDBOX_TRANSPORT_CALLS=%d" % len(transport.calls))
         print("SANDBOX_EVIDENCE=%s" % path)
+        if not settled:
+            print("SANDBOX_EXIT=%d" % EXIT_SANDBOX)
+            return EXIT_SANDBOX
         print("SANDBOX_EXIT=0")
         return EXIT_OK
 
