@@ -34,14 +34,18 @@ BUSINESS = "t"
 # here is a deliberate decision that the package still runs with zero third-party wheels.
 ALLOWED_IMPORTS = frozenset((
     "argparse", "datetime", "hashlib", "io", "json", "os", "pathlib", "re",
-    "subprocess", "sys", "tempfile", "unittest", "app", "offline_qualification_v1",
+    "subprocess", "sys", "tempfile", "time", "unittest", "app",
+    "offline_qualification_v1",
 ))
 
 # The package was offline until P3. Rather than widening the set above -- which would let
 # any module in `app/` open a socket and leave nothing to notice -- the network capability
-# is confined to one file, and the confinement is what the tests below assert.
+# is confined to a declared, closed set of files, and the confinement is what the tests
+# below assert. P4 added the AI proposal node as the second declared network consumer: a
+# live model call is the one thing that module exists to do, and keeping it in its own
+# file keeps the rest of the package provably socket-free.
 NETWORK_IMPORTS = frozenset(("base64", "socket", "urllib"))
-NETWORK_MODULE = "sandbox.py"
+NETWORK_MODULES = frozenset(("sandbox.py", "proposal_ai.py"))
 SANDBOX_IMPORTS = ALLOWED_IMPORTS | NETWORK_IMPORTS
 # Only the command layer may reach the network module: a second importer would be a second
 # place where an order can be placed.
@@ -278,29 +282,29 @@ class ChainTest(unittest.TestCase):
         return found
 
     def test_app_imports_only_the_standard_library_and_the_kernel(self):
-        """Every module keeps the offline set; the one network module gets the extra trio."""
+        """Every module keeps the offline set; the declared network modules get the trio."""
         offenders = {}
         for path in sorted((ROOT / "app").glob("*.py")):
-            allowed = SANDBOX_IMPORTS if path.name == NETWORK_MODULE else ALLOWED_IMPORTS
+            allowed = SANDBOX_IMPORTS if path.name in NETWORK_MODULES else ALLOWED_IMPORTS
             for root in sorted(self._imports(path)):
                 if root not in allowed:
                     offenders.setdefault(root, set()).add(path.name)
         self.assertEqual(offenders, {})
 
-    def test_only_one_module_can_reach_the_network(self):
-        """The trio is confined to `sandbox.py`; elsewhere it is still a defect."""
+    def test_network_imports_stay_inside_the_declared_modules(self):
+        """Outside the declared network modules, the trio is still a defect."""
         spread = {}
         for path in sorted((ROOT / "app").glob("*.py")):
-            if path.name == NETWORK_MODULE:
+            if path.name in NETWORK_MODULES:
                 continue
             for root in sorted(self._imports(path) & NETWORK_IMPORTS):
                 spread.setdefault(root, set()).add(path.name)
         self.assertEqual(spread, {})
 
     def test_only_the_command_layer_imports_the_network_module(self):
-        """`main.py` wires the command; nothing else may start an order."""
+        """`main.py` wires the commands; nothing else may start an order."""
         callers = {path.name for path in sorted((ROOT / "app").glob("*.py"))
-                   if path.name != NETWORK_MODULE and "sandbox" in self._siblings(path)}
+                   if path.name not in NETWORK_MODULES and "sandbox" in self._siblings(path)}
         self.assertEqual(callers, set(SANDBOX_CALLERS))
 
 

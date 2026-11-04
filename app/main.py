@@ -267,13 +267,24 @@ def _write_blocked(run_directory, policy, order):
     return document
 
 
-def evaluate_command(arguments):
-    """One end-to-end offline run: catalogue, policy, host snapshot, four cores, binding."""
+def evaluate_command(arguments, run_directory=None):
+    """One end-to-end offline run: catalogue, policy, host snapshot, four cores, binding.
+
+    `run_directory` is None for the CLI: the directory is created here, exclusively. The
+    AI proposal path passes one it created earlier, so the model's evidence and the
+    governance result land in the same run instead of two directories that only claim to
+    belong together.
+    """
     from . import policy
 
     stamp = arguments.stamp or settings.utc_stamp()
     business = arguments.business
-    run_directory = settings.run_directory(stamp, business)
+    if run_directory is None:
+        run_directory = settings.run_directory(stamp, business)
+    else:
+        # The caller created the directory through settings.run_directory, whose name is
+        # exactly "<stamp>_<business>"; the stamp shape is fixed at 16 characters.
+        stamp = run_directory.name[:16]
     catalogue = policy.load_catalog()
     offer = next((o for o in catalogue["offers"] if o["offer_id"] == arguments.offer_id), None)
     order = build_order(arguments.offer_id, offer,
@@ -380,6 +391,76 @@ def evaluate_parser(sub):
                         help="seconds to age the snapshot; >300 expires every field")
     parser.add_argument("--as-of", default=None,
                         help="pin the snapshot moment (2026-11-03T04:00:00Z); defaults to now")
+    parser.add_argument("--host-key", default=None,
+                        help="pin task and environment identity for a controlled comparison")
+    return parser
+
+
+def propose_ai_command(arguments):
+    """The AI proposal node: a model drafts the order, the unchanged chain judges it.
+
+    Order of operations is the evidence story: the model is called first, its text is
+    structurally validated, and only then is the run directory created -- so a refused
+    proposal leaves no run directory at all, and an accepted one has its prompt, raw
+    model text, parsed proposal, validation report and provenance saved beside the
+    governance result they produced. The governance chain itself is not re-implemented:
+    the validated proposal is passed to `evaluate_command` exactly as a CLI order would
+    be, with `amount_source=CLIENT_SUPPLIED` marking that the model stated the number
+    and R4 -- not the model -- decided whether it matches the catalogue.
+    """
+    from . import policy, proposal_ai
+
+    stamp = arguments.stamp or settings.utc_stamp()
+    business = arguments.business
+    catalog = policy.load_catalog()
+    prompt = proposal_ai.build_prompt(catalog)
+    if arguments.provider == "mock":
+        provider = proposal_ai.MockProvider(arguments.mock_response)
+    else:
+        provider = proposal_ai.RemoteProvider(arguments.base_url, arguments.model,
+                                              arguments.key_env)
+    try:
+        raw = provider.complete(prompt)
+        proposal = proposal_ai.parse_proposal(raw)
+    except proposal_ai.ProposalAIError as error:
+        print("AI        REFUSED code=%s" % error.code)
+        print("DETAIL    %s" % error)
+        return EXIT_USAGE
+
+    run_directory = settings.run_directory(stamp, business)
+    proposal_ai.save_evidence(run_directory, prompt, raw, proposal, provider.meta())
+    print("AI        PROPOSAL provider=%s offer=%s amount=%s order=%s" % (
+        provider.name, proposal["offer_id"], proposal["amount_minor"],
+        proposal["order_id"]))
+    print("RUN       %s" % run_directory.name)
+
+    ns = argparse.Namespace(
+        offer_id=proposal["offer_id"], order_id=proposal["order_id"],
+        amount_minor=proposal["amount_minor"], currency=proposal["currency"],
+        payee=proposal["payee"], business=business, stamp=stamp,
+        dependencies=arguments.dependencies, integrity_rid=None,
+        observed_offset=0, as_of=arguments.as_of, host_key=arguments.host_key)
+    return evaluate_command(ns, run_directory=run_directory)
+
+
+def propose_ai_parser(sub):
+    parser = sub.add_parser(
+        "propose-ai", help="let a model draft the proposal, then run the unchanged chain")
+    parser.add_argument("--provider", choices=("mock", "remote"), default="mock",
+                        help="mock: deterministic offline stand-in; remote: live model")
+    parser.add_argument("--mock-response", default=None,
+                        help="override the mock provider's canned text (for drills)")
+    parser.add_argument("--base-url", default=None,
+                        help="remote: HTTPS origin speaking /chat/completions")
+    parser.add_argument("--model", default=None,
+                        help="remote: model name sent in the request body")
+    parser.add_argument("--key-env", default="H56PAY_MODEL_KEY",
+                        help="remote: NAME of the environment variable holding the key")
+    parser.add_argument("--business", default="shop")
+    parser.add_argument("--stamp", default=None, help="20261103T021741Z; defaults to now")
+    parser.add_argument("--dependencies", choices=("true", "false"), default="true")
+    parser.add_argument("--as-of", default=None,
+                        help="pin the snapshot moment; defaults to now")
     parser.add_argument("--host-key", default=None,
                         help="pin task and environment identity for a controlled comparison")
     return parser
@@ -1158,6 +1239,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("selfcheck", help="verify the package against its own identity record")
     evaluate_parser(sub)
+    propose_ai_parser(sub)
     verify_parser(sub)
     replay_parser(sub)
     recover_parser(sub)
@@ -1173,6 +1255,8 @@ def main(argv=None):
         return recover_command(arguments)
     if arguments.command == "evaluate":
         return evaluate_command(arguments)
+    if arguments.command == "propose-ai":
+        return propose_ai_command(arguments)
     if arguments.command == "sandbox":
         return sandbox_command(arguments)
     return EXIT_USAGE
