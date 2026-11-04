@@ -1,50 +1,93 @@
-# Credentials
+# Credentials and API configuration
 
-This package runs fully offline with **no credentials at all**. The key names below are
-needed only if you choose to exercise the real-mode PayPal sandbox path. This file lists
-key names and handling rules; it never contains a value.
+Catalogue evaluation, the mock proposal route, self-checks, the evidence UI and offline
+tests work without service credentials. Remote AI and PayPal Sandbox are separate,
+explicitly selected routes.
 
-## Key names
+## Configuration names
 
-| key | used for | where it is read from |
+| Name | Purpose | Accepted source |
 | --- | --- | --- |
-| `PAYPAL_CLIENT_ID` | PayPal REST OAuth client id | process environment, or `.env` |
-| `PAYPAL_CLIENT_SECRET` | PayPal REST OAuth client secret | process environment, or `.env` |
-| `PAYPAL_ENVIRONMENT` | must be exactly `sandbox` for the sandbox host to be addressed | process environment, or `.env` |
+| `H56PAY_MODEL_KEY` | Example name for a model API key; passed through `--key-env` | Process environment only. |
+| `PAYPAL_CLIENT_ID` | Sandbox REST app client ID | Process environment, or local `.env`. |
+| `PAYPAL_CLIENT_SECRET` | Matching Sandbox REST app secret | Process environment, or local `.env`. |
+| `PAYPAL_ENVIRONMENT` | Selects the Sandbox configuration | Process environment, or local `.env`; value `sandbox`. |
 
-## How to provide them
+The model key's **variable name**, rather than its value, appears in the CLI. PayPal
+configuration names, including case variants, are reserved and rejected as model-key
+names. Model calls do not load a key from `.env`.
 
-Preferred: inject them into the **process environment of the one shell** that runs the
-command, and never write them to disk:
+## Enter credentials in an unrecorded PowerShell session
+
+This helper prompts securely and sets a variable in the current process. It converts the
+SecureString in memory and releases the unmanaged buffer. The key necessarily remains
+available to the application while that process environment contains it.
 
 ```powershell
-$env:PAYPAL_CLIENT_ID = Read-Host "client id"
-$secure = Read-Host "client secret" -AsSecureString
-# Convert in memory, in this shell only. A SecureString assigned directly is NOT the
-# text -- [string]$secure yields "System.Security.SecureString". Conversion:
-$bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-$env:PAYPAL_CLIENT_SECRET = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-[System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)   # zero the buffer
-Remove-Variable secure, bstr                                     # drop the handles
-# at the end of the session (same shell):
-Remove-Item Env:PAYPAL_CLIENT_ID, Env:PAYPAL_CLIENT_SECRET
+function Set-H56ProcessSecret {
+    param([string]$Name, [string]$Prompt)
+    $secureValue = Read-Host $Prompt -AsSecureString
+    $buffer = [IntPtr]::Zero
+    try {
+        $buffer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureValue)
+        [Environment]::SetEnvironmentVariable(
+            $Name,
+            [Runtime.InteropServices.Marshal]::PtrToStringBSTR($buffer),
+            [EnvironmentVariableTarget]::Process)
+    }
+    finally {
+        if ($buffer -ne [IntPtr]::Zero) {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($buffer)
+        }
+        if ($null -ne $secureValue) { $secureValue.Dispose() }
+    }
+}
 ```
 
-Nothing above echoes, redirects, or logs a value; `$env:` never goes to disk. The
-`Read-Host -AsSecureString` line keeps the secret out of the scrollback and the
-console history.
+For one model exercise:
 
-Alternative: a `.env` file next to the README. `.env` is ignored by git
-(`.gitignore`), and `.env.example` lists the key names only.
+```powershell
+Set-H56ProcessSecret 'H56PAY_MODEL_KEY' 'Model API key'
+```
 
-## Handling rules
+For the Sandbox exercise:
 
-* Never place a credential on a command line, in a log, in an evidence record, in a
-  commit, or in a chat message.
-* Sandbox and live credentials are different secrets. The endpoint guard refuses any
-  host other than `api-m.sandbox.paypal.com`; a live-mode secret used against the
-  sandbox host will fail authentication and is refused by policy anyway.
-* Rotate the sandbox secret if it has ever been echoed to a terminal or stored
-  anywhere outside the credential manager.
-* The sandbox moves no real money. That is a property of PayPal's sandbox, not of
-  this package; nothing here is certified for production payments.
+```powershell
+Set-H56ProcessSecret 'PAYPAL_CLIENT_ID' 'PayPal Sandbox client ID'
+Set-H56ProcessSecret 'PAYPAL_CLIENT_SECRET' 'PayPal Sandbox client secret'
+$env:PAYPAL_ENVIRONMENT = 'sandbox'
+```
+
+After the selected exercise, including when it stops, clear its credentials in the same
+shell. The [demo guide](DEMO_GUIDE.md) includes this cleanup in `finally` blocks:
+
+```powershell
+Remove-Item Env:H56PAY_MODEL_KEY, Env:PAYPAL_CLIENT_ID, Env:PAYPAL_CLIENT_SECRET, Env:PAYPAL_ENVIRONMENT -ErrorAction SilentlyContinue
+```
+
+Do not record credential entry, print environment values, or paste secrets into a shell
+assignment, chat, issue, commit or screenshot. Commands containing only these variable
+names can be kept without storing a secret value in the command text.
+
+## Optional PayPal `.env`
+
+Copy [.env.example](../.env.example) to `.env` at the repository root and fill it locally
+if you prefer file-based PayPal configuration. `.env` is git-ignored. It accepts exactly
+the three PayPal names above; unknown names are refused. Existing process variables take
+precedence. Keep `H56PAY_MODEL_KEY` in the process environment instead of this file.
+
+Use a matched client ID/secret from a Sandbox REST app. The business account is the
+merchant; a separate personal Sandbox account approves the order in a browser. The
+application does not use the buyer's login password. The executor addresses only
+`https://api-m.sandbox.paypal.com` and transfers Sandbox funds.
+
+## Recorded evidence and reviewer access
+
+Saved provenance contains the key variable's name, configured/returned model, response
+ID, usage and hashes. The CLI refuses detected credential echoes before evidence use.
+Review evidence copies before publication and preserve their hashes.
+
+Reviewers can run the complete offline route immediately. To exercise remote services,
+use your own model API account and PayPal Sandbox app, following these configuration
+steps. Any separately arranged testing access belongs in the submission's testing
+instructions, with its scope and lifetime stated there.

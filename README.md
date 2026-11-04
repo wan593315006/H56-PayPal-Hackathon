@@ -1,190 +1,202 @@
-# H56 · single-package build
+# H56 PayPal
 
-One directory that carries the whole runnable artifact: a frozen governance kernel, the
-offline qualification chain that drives it, and a self-check that proves the package is
-the package.
+**Deterministic governance for AI payment workflows.**
 
-Nothing here is downloaded at run time and nothing here is edited in place. The kernel
-closure under `h56_core/` is byte-pinned, member by member, in
-[VENDORED.md](VENDORED.md).
+**Demo video:** [Watch the 2:55 demonstration on YouTube](https://youtu.be/KAn8YssR1hg).
 
-## Layout
+H56 PayPal separates a model's purchase proposal from the checks and approval required
+to execute it. An independent payment policy checks the business terms, H56 evaluates
+host eligibility, and PayPal Sandbox records the buyer's approval and payment outcome.
+Each stage leaves an inspectable record.
 
-| path | what it is |
+A plausible proposal can still name the wrong price, arrive with stale evidence, or
+precede buyer approval. H56 makes those conditions separate decisions rather than one
+model-generated answer.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[AI or catalogue proposal] --> B[Payment policy]
+    B -->|ALLOW| C[H56 host-eligibility evaluation]
+    B -->|BLOCKED| X[Recorded stop]
+    C -->|FEASIBLE and valid binding| D[Create Sandbox order]
+    C -->|Other verdict or error| X
+    D --> E[Buyer approves in PayPal]
+    E --> F[Server-side order and freshness checks]
+    F --> G[Sandbox Capture]
+    G --> H[Transaction receipt and audit evidence]
+```
+
+| Layer | Responsibility |
 | --- | --- |
-| `h56_core/offline_qualification_v1/` | kernel bridge, evidence and request contracts, offline CLI |
-| `h56_core/runtime_windows/` | path, identity and admission support for the kernel |
-| `h56_core/runtime_binding_v1_20261024/engineering/vendor/` | the four native cores, as source bytes |
-| `app/` | package entry points; every later stage is added here, never inside `h56_core/` |
-| `VENDORED.md` | per-file identity record for all 139 pinned members plus the one declaration file |
-| `IP_NOTICE.md` | intellectual-property notice |
+| AI proposal | Drafts a JSON order using the controlled catalogue. Its output passes structure and credential-echo checks before use. |
+| Payment policy | Checks a positive integer amount, the per-order limit, catalogue membership, the payee allowlist, and the exact catalogue price and currency. |
+| H56 native cores | K0: facts and history; K1: derived state; C1: capability contracts; C2: candidate feasibility. This build uses a fixed **synthetic host-evidence contract**. |
+| PayPal executor | Creates and queries Sandbox orders, requires buyer approval, verifies the server-held order, and reports the Capture outcome. |
 
-## Requirements
+`FEASIBLE` is a host-eligibility result. Payment policy and buyer approval remain
+independent requirements. A policy stop records `BLOCKED` with `h56_invoked=false`;
+it does not claim a native-core verdict.
 
-Python 3.9 or newer. The offline path needs **no third-party package**.
-`requirements.txt` covers real-mode components only.
+CLI steps make execution explicit. `propose-ai` stops after saving its governance
+result; the operator separately selects the Sandbox steps.
 
-Run everything with `-B`: byte caches are not merely untidy here, they change the file
-set of `h56_core/` and the kernel refuses to import from an unexpected tree.
+## Start without credentials
 
-## Check the package
+Verified Windows configurations: Python **3.9.13** and **3.13.12**. The offline route
+uses the standard library and the included source closure. Use a short checkout path
+because some vendored paths are long.
 
-```
-python -B -m app.main selfcheck
-```
-
-It prints one line per check and exits 0 only if all of them pass:
-
-1. the file set under `h56_core/` equals the 139 manifest members plus `SOURCE_MANIFEST.json`;
-2. the declaration file hashes to the pinned value and the kernel agrees on the product root;
-3. the three fixed assets load and validate;
-4. the 30 offline test cases pass, with a scratch root created outside the package;
-5. the four native cores import from pinned source bytes, with no cached bytecode;
-6. no byte cache was created while running.
-
-## Run one offline chain
+In PowerShell 5.1 or newer:
 
 ```powershell
+$repoUrl = 'https://github.com/wan593315006/H56-PayPal-Hackathon.git'
+git -c core.longpaths=true clone $repoUrl C:\h56demo
+if ($LASTEXITCODE -ne 0) { throw 'Clone failed' }
+Set-Location C:\h56demo
+
+py -3.9 -m venv C:\h56env
+$PY = 'C:\h56env\Scripts\python.exe'
+& $PY -B -m app.main selfcheck
+if ($LASTEXITCODE -ne 0) { throw 'Self-check failed; see docs/RECOVERY_GUIDE.md' }
+
 $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'")
-python -B -m app.main evaluate --offer-id S-C01 --order-id O-DEMO --stamp $stamp
-python -B -m app.main verify   --stamp $stamp --business shop
+& $PY -B -m app.main evaluate --offer-id S-C01 --order-id O-DEMO --stamp $stamp
+if ($LASTEXITCODE -ne 0) { throw 'Evaluation stopped; inspect its named reason' }
+& $PY -B -m app.main verify --stamp $stamp --business shop
+if ($LASTEXITCODE -ne 0) { throw 'Binding verification failed' }
+
+& $PY -B run_offline_tests.py
 ```
 
-`evaluate` walks one end-to-end run: catalogue, business policy, host-evidence envelope,
-the four cores, and a binding record. `verify` re-checks that binding from the bytes on
-disk, without asking the kernel to decide again, and exits 5 if any link is broken. It
-also opens the kernel record and compares the verdict on display against it: the record
-is not only required to exist, it is required to agree. Generate the stamp once and pass
-the same value to both commands -- `verify` re-opens the exact directory `evaluate`
-wrote, so a stamp typed from memory will not be found.
+If Python 3.13 is your installed version, use `py -3.13` when creating the environment.
+Keep `-B` on project commands: generated byte caches change the pinned core file set.
 
-Two properties are worth stating because they are easy to assume and were once missing:
+For the unchanged sample catalogue, the evaluation returns `FEASIBLE` with 22 native
+calls, and `verify` returns `BIND_FINDINGS=0` / `VERIFY_EXIT=0`. The code baseline
+`ecbad1c` has **263 offline tests**. The guarded test entry reports network attempts
+separately and succeeds only when tests pass with zero attempted Python network calls.
 
-* **The catalogue is the price, not a budget.** R4 requires the order amount to equal the
-  offer price. The per-order limit is an upper bound; an amount under it is not thereby
-  correct. `--amount-minor` is therefore a value to be checked, and an order that omits it
-  takes the catalogue price with `amount_source=CATALOGUE`.
-* **The order is bound to the assessment, not attached to it.** The order's digest occupies
-  its own segment of `request_id` -- the last one, immediately after the timestamp -- and the
-  kernel derives `assessment_id` from the digest of the request. `verify` checks three layers
-  in order: the binding against the bytes on disk, those bytes against the digests the
-  request fixed when it was made, and the displayed result against the kernel record. A
-  digest that merely appears somewhere else in the identifier, evidence swapped after the
-  fact, or a decision edited in `result.json` are each refused, with the layer named in the
-  finding code.
+Use a fresh stamp for each new run. A taken stamp is refused rather than reused.
+The [recovery guide](docs/RECOVERY_GUIDE.md) explains setup, integrity checks, outputs,
+and troubleshooting. The [demo guide](docs/DEMO_GUIDE.md) includes positive and negative
+examples and their expected results.
 
-`--as-of` and `--host-key` pin the snapshot moment and the logical host. They exist for
-controlled comparisons: with both pinned, two runs differ in one evidence field and in
-nothing else.
+## Choose an exercise
 
-## Replay, recovery, and the read-only console
+| Route | Credentials / network | What you can inspect |
+| --- | --- | --- |
+| Catalogue evaluation | None; offline | Business policy, synthetic host evidence, native verdict, and binding verification. |
+| Mock AI proposal | None; offline | The proposal interface and the same downstream policy/core chain, using a deterministic stand-in. |
+| Remote AI proposal | Your model API key; one model request | Model text, parsed proposal, validation, service receipt, usage, and the downstream result. |
+| PayPal Sandbox | Your Sandbox app and buyer account; PayPal API calls | Order creation, personal browser approval, server-side checks, Capture, and receipts. |
 
-Three entry points exist for the states a run can be left in. None of them repairs the
-record store: the kernel names a torn journal `PARTIAL_EVENT_PRESERVED_NO_AUTOREPAIR`, and
-that is taken at its word.
+For an offline AI-interface example:
 
-```
-python -B -m app.main recover --survey
-python -B -m app.main recover --session oq_shop_20261103T171000Z --stamp 20261103T174000Z --create-run
-python -B -m app.main replay  --stamp 20261103T171000Z --business shop
-python -B ui/server.py --port 8848
+```powershell
+$aiStamp = [DateTime]::UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'")
+& $PY -B -m app.main propose-ai --provider mock --stamp $aiStamp --host-key hostAI01
+& $PY -B -m app.main verify --stamp $aiStamp --business shop
 ```
 
-`recover --survey` classifies every session from file counts alone, without importing the
-kernel, and prints what a person should do about anything that is not `HEALTHY`. Six states
-are distinguished: `ORPHAN_CLAIM`, `HALF_COMMIT`, `ARTIFACT_MISSING`, `CLAIM_MISSING`,
-`TORN_JOURNAL`, `HEALTHY`. Two of them return the same kernel code, so the disk shape is what
-tells them apart, not the code.
+The mock names catalogue offer `S-C02` at USD 25.00. This command evaluates a proposal;
+it does not create a PayPal order. For a real model call and the separate Sandbox
+exercise, follow the [demo guide](docs/DEMO_GUIDE.md) and
+[credential guide](docs/CREDENTIALS.md).
 
-`recover --session` writes `recovery.json` beside a run whose kernel record survived. It does
-not write `result.json`, and it sets `order_recoverable=false`: the order reached the kernel
-only as a digest inside `request_id`, which cannot be inverted. The record store holds the
-verdict, the run directory holds the business; neither alone is the whole story. Without
-`--create-run` it refuses a missing directory rather than manufacturing one.
+The model key is read from a process environment variable such as `H56PAY_MODEL_KEY`.
+The optional `.env` file is reserved for the three PayPal configuration names listed in
+[.env.example](.env.example). API-mode environment setup uses
+`python -m pip install -r requirements.txt`; use your selected environment's interpreter.
 
-`replay` re-submits the bytes already on disk and reports `REUSED` only when `events.jsonl`
-is unchanged afterwards. It deliberately does not consult `native_recomputed`: that field is
-`False` on every successful return, a fresh computation included, so it cannot tell the two
-apart. The journal growing is the only honest signal.
+## Inspect the results
 
-`ui/server.py` is a read-only console. It does not import `app` or the kernel, has no entry
-point that starts a run, and writes nothing under `runs/` or `records/`. Three guards stand
-in front of it: the `Host` header must equal `127.0.0.1:<port>` exactly (so `localhost` is
-refused), every `/api/*` request needs the `X-H56-Run-Token` printed at startup, and a POST
-body must be `{}` so no request can carry order fields. The token identifies a terminal, not
-a person.
+`runs/<stamp>_shop/` contains the request, evidence, result and binding. An AI run adds
+`ai_proposal/`: prompt, answer text, parsed proposal, validation and provenance.
+`records/<session>/` holds the native assessment, claim and event journal. Keep both
+directories together when preserving a run for later verification.
 
-## Offline and real mode
+Start the read-only evidence UI:
 
-Offline evaluation is self-contained: it takes a request and an evidence envelope, runs
-the kernel, and returns a decision. It makes no network call.
-
-Run the offline tests through the guarded entry point:
-
-```
-python -B run_offline_tests.py
+```powershell
+& $PY -B ui/server.py --port 8848
 ```
 
-The guard checks DNS, TCP and UDP refusal before loading any test. Any attempted Python
-network operation makes the run fail, even if a test catches the exception. The final
-`OFFLINE_TEST_SUMMARY` reports test results and network attempts separately; a clean run
-has `blocked_network_attempts=0` and exits 0. Use `--check-guard` to run only the controls,
-or `-p test_sandbox.py` to select a test file. Plain `unittest` commands do not install this
-guard. It covers this Python process, not native code or independently launched child
-programs, and records event names without request arguments.
+Open `http://127.0.0.1:8848/`, enter the local run token printed by the server, and load
+the runs or records view. The UI reads saved results; commands create evaluations and
+perform Sandbox actions. See [ui/README.md](ui/README.md).
 
-Real mode adds PayPal REST calls and needs `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`
-in the process environment, or in a `.env` file next to this README. `.env` is ignored by
-git; `.env.example` lists key names only. No credential is ever committed, logged, or
-written into an evidence record.
+## Recorded demonstrations
 
-## Reproduce from scratch
+| Recorded run | Result | Code used |
+| --- | --- | --- |
+| 2026-11-03 PayPal Sandbox | USD 1.00 Capture `COMPLETED`, following browser approval and server-side verification; three saved host assessments. | `be15d4a` |
+| 2026-11-04 DeepSeek | `deepseek-flash` drafted `S-C01 / 100 / USD`; policy `ALLOW`, H56 `FEASIBLE`, 22 calls, independent binding verification passed; usage 511 input + 84 output tokens. | `ecbad1c` |
 
-From an empty machine, without knowing anything about how this package was built:
+These are separate recorded sessions. The model-only run made zero business-action
+calls. The Sandbox run used simulated funds. Host facts in this demonstration are
+labelled `SYNTHETIC_ONLY` in the evidence contract.
 
-1. **Clone short, then enter it.** The deepest relative path inside the package is 226
-   characters (236 absolute against a short root); a clone root longer than about 24
-   characters can hit the Windows `MAX_PATH` limit on the vendored sources. Use a short
-   root, e.g. `C:\h56payc1` -- not the Desktop, not a path with spaces or non-ASCII
-   characters. Beware: plain archive extraction (zip or `tar`) can **silently drop** the
-   deepest files on Windows -- always extract with git itself and confirm the count.
+The following stills are **historical evidence views from the demo video**, rather than
+new requests or the interactive UI:
 
-   ```powershell
-   git clone <url> C:/h56payc1
-   cd C:\h56payc1
-   ```
+![Recorded AI proposal and service evidence](docs/images/ai-evidence-replay.png)
 
-   Line endings: `.gitattributes` sets `* -text`, so both `core.autocrlf=false` and
-   `core.autocrlf=true` clones must produce byte-identical files. If they do not, stop
-   and report it; the 139 pinned members are checked by hash, and a line-ending
-   conversion invalidates every one of them.
+![Recorded PayPal Sandbox receipt](docs/images/sandbox-evidence-replay.png)
 
-2. **Check the package.**
+The published demo video retains historical CLI footage from `86e20a4` and its 186-test
+snapshot, and adds the later AI evidence from `ecbad1c`. Each segment retains its source
+identity. Current repository test results are reported independently of that footage.
 
-   ```powershell
-   python -B -m app.main selfcheck
-   ```
+## Project origins and hackathon updates
 
-3. **Run the guarded offline tests.**
+H56 PayPal builds on our existing H56 governance research and published computation
+core. The reused core is byte-pinned in [VENDORED.md](VENDORED.md), with source release
+`83484f79ad387296e623376f41b84bf1fb20d8ba` and upstream core identity
+`9221e16460258bc81e1176d69f63a09f81159b73`.
 
-   ```powershell
-   python -B run_offline_tests.py
-   ```
+During the PayPal AI Hackathon, we developed the payment application in a separate
+repository. The implementation history records these additions on November 3–4, 2026:
 
-   The guarded entry point installs the fail-closed network guard **before** any test is
-   imported; plain `unittest` commands do not install that guard, so a test that tries to
-   reach the network would not be caught. Use the guarded entry for any full run.
+| Date | Payment-project addition | Commit |
+| --- | --- | --- |
+| Nov 3 | Independent package assembly and source-identity checks | `5d5fb3c` |
+| Nov 3 | Payment policy, controlled catalogue and native-core bridge | `dcecd08` |
+| Nov 3 | Catalogue-price enforcement and order/assessment binding | `5940551` |
+| Nov 3 | Recovery, replay and a read-only evidence console | `bd0aa9e` |
+| Nov 3 | PayPal Sandbox order, approval-state and Capture integration, followed by execution-gate hardening | `b3221fa` through `be15d4a` |
+| Nov 4 | Reproduction instructions, dependency compatibility and English UI text | `c8732e0` through `86e20a4` |
+| Nov 4 | Structured AI proposals, service receipts and input-boundary checks | `8115047` through `ecbad1c` |
 
-4. **Run one offline chain** (see "Run one offline chain" above -- generate the stamp
-   with the same command shown there and pass it to both `evaluate` and `verify`).
+The four native cores remain unchanged. The contribution of this submission is the
+payment-specific application, its explicit decision boundaries and its inspectable
+integration evidence. Dates above are Git check-in dates.
 
-5. Optionally, real-mode sandbox: read [docs/CREDENTIALS.md](docs/CREDENTIALS.md) for
-   the key names and the injection rules. Nothing in steps 1-4 needs any credential,
-   and the sandbox moves no real money.
+## Repository map
 
-Known shell traps on Windows: PowerShell `>` redirection writes UTF-16LE (do not use it
-to capture evidence; write files from the tool itself).
+| Path | Purpose |
+| --- | --- |
+| `h56_core/` | 139 pinned computation members plus `SOURCE_MANIFEST.json`; includes the vendor closure. |
+| `app/` | Proposal handling, payment policy, binding, recovery and Sandbox integration. |
+| `fixtures/catalog.json` | Authoritative sample offers, prices, currencies and logical payees. |
+| `ui/` | Standard-library, read-only evidence console. |
+| `tests/`, `run_offline_tests.py` | Engineering regression tests and the guarded test entry. |
+| `docs/` | Demo, credential and recovery instructions. |
+| `VENDORED.md`, `.gitattributes` | Provenance and byte-preservation policy. |
 
-## Licence
+Runtime data, credentials and internal construction scripts are kept outside the public
+source distribution. The source checkout contains everything required for the no-key
+route; it has no separate slice-activation step.
 
-MIT. See [LICENSE](LICENSE) and [IP_NOTICE.md](IP_NOTICE.md).
+## Development direction
+
+Next development directions are versioned host-evidence collectors, richer payment
+contracts, and a guided operator workflow that preserves the same separation between
+proposal, eligibility, authorization and execution.
+
+## License
+
+Copyright (c) 2026 万根. Distributed under the complete [MIT License](LICENSE).
+[IP_NOTICE.md](IP_NOTICE.md) records the intellectual-property notice without modifying
+the MIT terms.
