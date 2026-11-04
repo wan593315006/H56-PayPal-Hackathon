@@ -374,6 +374,44 @@ class RemoteFailureFamilyTest(unittest.TestCase):
         provider = proposal_ai.RemoteProvider("https://api.example.com", "m", self.KEY_ENV)
         self.assertEqual(provider.meta()["server_receipt"], "missing")
 
+    def test_receipt_with_a_lone_surrogate_is_refused_before_evidence(self):
+        # A1 (round 4): receipt values are server-controlled text; a lone surrogate used
+        # to pass every isinstance check and crash evidence writing after the run
+        # directory existed. The refusal must fire inside complete(), before anything.
+        body = json.dumps({"id": "R-\ud800X",
+                           "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RECEIPT_ENCODING")
+        self.assertIsNone(self.provider.last_receipt)
+
+    def test_receipt_usage_with_a_surrogate_is_refused(self):
+        payload = {"usage": {"note": "\ud800"}, "id": "ok",
+                   "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}
+        body = json.dumps(payload).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RECEIPT_ENCODING")
+
+    def test_overlong_receipt_field_is_refused(self):
+        body = json.dumps({"id": "x" * 300,
+                           "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RECEIPT_TOO_LONG")
+
+    def test_receipt_echoing_the_key_is_refused(self):
+        # A hostile endpoint can copy the Authorization value into any string it sends
+        # back; a receipt that carried the key must never reach the evidence directory.
+        body = json.dumps({"id": "Bearer secret-value",
+                           "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+        self.assertIsNone(self.provider.last_receipt)
+
+    def test_receipt_echo_inside_usage_is_refused_too(self):
+        body = json.dumps({"usage": {"note": "secret-value"},
+                           "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+
     def test_redirect_refusal_propagates_through_complete(self):
         _opener, outcome = self._run(proposal_ai.ProposalAIError("PROPOSAL_AI_REDIRECT_REFUSED", 302))
         self.assertEqual(outcome["error"].code, "PROPOSAL_AI_REDIRECT_REFUSED")

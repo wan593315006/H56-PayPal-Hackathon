@@ -359,8 +359,10 @@ class RemoteProvider:
         # it describes: id, model echo and usage are what a bill or an audit asks for,
         # and the digest is taken over the exact bytes that arrived. A field the server
         # omitted is "missing", never fabricated -- a receipt that guesses is worse
-        # than one that admits a gap.
-        self.last_receipt = {
+        # than one that admits a gap. Every value the server chose is checked before
+        # it is stored: an unencodable or overlong string must refuse the call here,
+        # not crash evidence writing after the run directory exists.
+        receipt = {
             "http_status": status,
             "response_bytes": len(payload),
             "response_sha256": hashlib.sha256(payload).hexdigest(),
@@ -369,6 +371,8 @@ class RemoteProvider:
             "usage": document.get("usage")
             if isinstance(document.get("usage"), dict) else "missing",
         }
+        _check_receipt(receipt, key)
+        self.last_receipt = receipt
         return content
 
     def meta(self):
@@ -386,10 +390,49 @@ class RemoteProvider:
                 "server_receipt": receipt}
 
 
+RECEIPT_TEXT_MAX_CHARS = 256
+
+
 def _receipt_text(document, key):
-    """A receipt field that must be a non-empty string, or the literal "missing"."""
+    """A receipt field that must be a short, encodable, non-empty string -- else refusal.
+
+    Receipt values are server-controlled text, exactly like proposal fields: a lone
+    surrogate would pass every isinstance check and then crash evidence writing after
+    the run directory exists (the failure shape the first review caught for proposal
+    fields, arriving here through a new channel). The same named refusal fires before
+    anything is stored, and "missing" stays reserved for fields the server omitted.
+    """
     value = document.get(key)
-    return value if isinstance(value, str) and value else "missing"
+    if not isinstance(value, str) or not value:
+        return "missing"
+    if len(value) > RECEIPT_TEXT_MAX_CHARS:
+        raise ProposalAIError("PROPOSAL_AI_RECEIPT_TOO_LONG", key)
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ProposalAIError("PROPOSAL_AI_RECEIPT_ENCODING", key) from None
+    return value
+
+
+def _check_receipt(receipt, key):
+    """The one credential must never re-enter the evidence through a server's echo.
+
+    A hostile or broken endpoint can copy the Authorization header into any string it
+    returns; a receipt that carried the key would breach the module's never-in-evidence
+    invariant through the server's own mouth. The check is containment against the one
+    key this call used -- cheap, exact, and fail-closed.
+    """
+    usage = receipt["usage"]
+    echoed = ""
+    if isinstance(usage, dict):
+        try:
+            json.dumps(usage, ensure_ascii=False).encode("utf-8")
+        except UnicodeEncodeError:
+            raise ProposalAIError("PROPOSAL_AI_RECEIPT_ENCODING", "usage") from None
+        echoed = json.dumps(usage, ensure_ascii=True)
+    if key and (key in receipt["response_id"] or key in receipt["returned_model"]
+                or key in echoed):
+        raise ProposalAIError("PROPOSAL_AI_RESPONSE_ECHOES_KEY")
 
 
 def check_encodable(text):
