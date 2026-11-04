@@ -434,6 +434,14 @@ class RemoteFailureFamilyTest(unittest.TestCase):
         self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
         self.assertIsNone(self.provider.last_receipt)
 
+    def test_echo_in_an_unrecognized_envelope_field_is_refused(self):
+        # The containment runs against the whole wire payload: a side field the parser
+        # never reads must not become a credential side channel either.
+        body = json.dumps({"note": "secret-value", "choices": [
+            {"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+
     def test_echo_inside_a_nested_usage_key_is_refused(self):
         # The echo check walks keys as well as values: json.dumps on the whole object
         # serialises keys too, and the walker collects them explicitly.

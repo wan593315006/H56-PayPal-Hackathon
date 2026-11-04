@@ -385,9 +385,11 @@ class RemoteProvider:
         # The answer body is server-chosen text, exactly like the receipt fields: a
         # credential echoed back inside the content would land in the raw-response
         # evidence file byte for byte, and -- parsed -- ride into the proposal, the
-        # result and the binding. The threat model for echoes always covered the
-        # server; the answer is the server speaking too.
-        if key in content:
+        # result and the binding. The containment runs against the whole wire payload,
+        # not just the extracted content: an unrecognized envelope field must not
+        # become a side channel either. (The JSON-escaping gap for exotic credentials
+        # is closed separately by the decoded-field check in the command layer.)
+        if key.encode("utf-8") in payload:
             raise ProposalAIError("PROPOSAL_AI_RESPONSE_ECHOES_KEY")
         # The receipt is what the server said about the call, kept beside the content
         # it describes: id, model echo and usage are what a bill or an audit asks for,
