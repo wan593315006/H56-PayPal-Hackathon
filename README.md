@@ -45,7 +45,7 @@ It prints one line per check and exits 0 only if all of them pass:
 ## Run one offline chain
 
 ```powershell
-$stamp = Get-Date -UtcNow -Format "yyyyMMdd'T'HHmmss'Z'"
+$stamp = [DateTime]::UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'")
 python -B -m app.main evaluate --offer-id S-C01 --order-id O-DEMO --stamp $stamp
 python -B -m app.main verify   --stamp $stamp --business shop
 ```
