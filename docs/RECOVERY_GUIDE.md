@@ -1,9 +1,8 @@
 # Reproduce H56 on another Windows machine
 
-The repository includes the complete pinned computation closure, the application,
-catalogue, UI and tests. Recovery means obtaining those source bytes, selecting an
-interpreter and verifying the build. There is no separate runtime-slice download,
-unfreezing procedure or private sidecar for the offline route.
+Clone the repository, create a Python environment, run selfcheck and produce your first
+assessment. The checkout includes the application, computation sources, catalogue, UI
+and tests; it is ready for this setup without a separate slice download or activation.
 
 ## Included assets and runtime outputs
 
@@ -14,9 +13,8 @@ unfreezing procedure or private sidecar for the offline route.
 | `tests/`, `run_offline_tests.py` | Local UI process/token |
 | `VENDORED.md`, `.gitattributes`, guides and license | Optional local `.env`, if the operator chooses it |
 
-Credentials and private development evidence are not needed for installation. The
-historical screenshots document earlier runs; the source exercises create your own
-records. Keep runtime outputs separate from published source changes.
+The local setup and sample assessment work without credentials. The exercises create
+records in your checkout; keep those runtime outputs separate from source changes.
 
 ## 1. Clone into a short directory
 
@@ -60,8 +58,8 @@ environment, install its package range when you choose those exercises:
 & $PY -m pip install -r requirements.txt
 ```
 
-`requirements.txt` declares a version range rather than a complete environment lock.
-Keep the Python version alongside any results you report.
+`requirements.txt` declares the supported package range. Record the installed package
+and Python versions alongside results when preserving an environment.
 
 ## 3. Check source identity and the native chain
 
@@ -77,8 +75,8 @@ three fixed assets, 30 native offline test cases, native cold imports and absenc
 byte caches. Expected result: **`SELFCHECK PASS 6/6`** and exit 0.
 
 The application code baseline `ecbad1c` runs **263** tests through the separate guarded
-entry, with `blocked_network_attempts=0` and `OFFLINE_TEST_EXIT=0`. The Python guard
-covers that process; it is not an OS firewall for arbitrary other programs.
+entry, with `blocked_network_attempts=0` and `OFFLINE_TEST_EXIT=0`. The network guard
+applies within that Python process.
 
 ## 4. Produce an evaluation and verify it
 
@@ -94,9 +92,8 @@ Expected: `FEASIBLE`, 22 native calls and `BIND_FINDINGS=0`. Generate the stamp 
 reuse it for `verify`. The [demo guide](DEMO_GUIDE.md) supplies a collision-avoiding stamp
 helper for multiple examples, policy/native refusals and the optional service routes.
 
-A fresh source download starts without historical runs. To inspect an archived
-assessment, retain its run directory **and** its referenced native session's artifact,
-claim and event journal. A summary alone does not replace that record.
+The commands create your own local runs. To inspect an archived assessment, retain its
+run directory **and** its referenced native session's artifact, claim and event journal.
 
 ## 5. Inspect through the local UI
 
@@ -133,15 +130,14 @@ the no-key installation check.
 | `SANDBOX_PROPOSAL_EXPIRED` | Preserve/query the existing order; a new proposal requires explicit confirmation rather than timestamp edits. |
 | Capture `PENDING` | Inspect the saved state and existing order; it is not a settled success. |
 
-`recover --survey` inspects native sessions, and `replay --stamp <your-stamp> --business
-shop` checks reuse of a saved request. These are runtime record tools, separate from
-installing the source package. Use your own session/stamp; construction-time examples
-from another machine are not expected to exist in a clean checkout.
+For existing runtime records, `recover --survey` inspects native sessions and
+`replay --stamp <your-stamp> --business shop` checks reuse of a saved request. Supply
+the session or stamp from your checkout.
 
-## What successful reproduction establishes
+## Setup complete
 
-You have the pinned source closure, a working native import/test path, a locally
-computed sample assessment and a verified binding to its stored record. Network-backed
-results are established by separately executing those routes with the corresponding
-credentials. The supplied host-evidence grade remains `SYNTHETIC_ONLY` and buyer
-authorization remains PayPal's independently checked fact.
+You now have a verified source checkout, a working native chain, a sample assessment
+and its checked record binding. Continue with the [demo guide](DEMO_GUIDE.md) for policy
+and host refusals, a model proposal or a Sandbox checkout. The
+[scope summary](../README.md#scope-and-evidence) describes the synthetic host inputs
+and the coverage of the recorded service sessions.

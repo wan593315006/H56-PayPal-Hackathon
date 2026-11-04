@@ -2,18 +2,29 @@
 
 **Deterministic governance for AI payment workflows.**
 
-**Demo video:** [Watch the 2:55 demonstration on YouTube](https://youtu.be/KAn8YssR1hg).
+[Watch the 2:55 demo](https://youtu.be/KAn8YssR1hg) ·
+[Run the examples](docs/DEMO_GUIDE.md) · [Installation guide](docs/RECOVERY_GUIDE.md)
 
-H56 PayPal separates a model's purchase proposal from the checks and approval required
-to execute it. An independent payment policy checks the business terms, H56 evaluates
-host eligibility, and PayPal Sandbox records the buyer's approval and payment outcome.
-Each stage leaves an inspectable record.
+H56 PayPal gives developers a controlled workflow for AI-assisted purchases. A model
+drafts an order, payment rules check its business terms, H56 computes a host-eligibility
+decision, and the buyer approves through PayPal Sandbox. CLI commands manage the
+workflow; a local evidence console brings its decisions and receipts together.
 
-A plausible proposal can still name the wrong price, arrive with stale evidence, or
-precede buyer approval. H56 makes those conditions separate decisions rather than one
-model-generated answer.
+The workflow checks price, recipient, evidence age and buyer approval before Capture.
+Named stop reasons and saved records help an operator inspect the outcome and resume
+an existing operation when appropriate.
 
-## How it works
+## What you can do
+
+| Capability | What the application provides |
+| --- | --- |
+| Generate a purchase proposal | An HTTPS model provider produces a structured order from the controlled catalogue, with a saved service receipt and token usage. |
+| Check the business terms | Payment rules validate the per-order limit, catalogue offer, logical payee, price and currency. |
+| Compute host eligibility | H56 runs K0 facts/history, K1 derived state, C1 capability contracts and C2 candidate feasibility on structured host evidence. |
+| Complete a Sandbox checkout | The executor creates and queries orders, checks buyer approval and server-held order details, and records Capture status. |
+| Inspect and verify a decision | The evidence console shows related runs and native records; the CLI verifier checks the saved order, request, evidence and assessment binding. |
+
+## Workflow
 
 ```mermaid
 flowchart LR
@@ -28,27 +39,22 @@ flowchart LR
     G --> H[Transaction receipt and audit evidence]
 ```
 
-| Layer | Responsibility |
-| --- | --- |
-| AI proposal | Drafts a JSON order using the controlled catalogue. Its output passes structure and credential-echo checks before use. |
-| Payment policy | Checks a positive integer amount, the per-order limit, catalogue membership, the payee allowlist, and the exact catalogue price and currency. |
-| H56 native cores | K0: facts and history; K1: derived state; C1: capability contracts; C2: candidate feasibility. This build uses a fixed **synthetic host-evidence contract**. |
-| PayPal executor | Creates and queries Sandbox orders, requires buyer approval, verifies the server-held order, and reports the Capture outcome. |
+## Recorded results
 
-`FEASIBLE` is a host-eligibility result. Payment policy and buyer approval remain
-independent requirements. A policy stop records `BLOCKED` with `h56_invoked=false`;
-it does not claim a native-core verdict.
+| Exercise | Recorded outcome | Date |
+| --- | --- | --- |
+| Real DeepSeek proposal | `deepseek-flash` drafted `S-C01 / 100 / USD`; payment policy `ALLOW`, H56 `FEASIBLE`, 22 native calls and successful binding verification. The receipt records 511 input + 84 output tokens. | Nov 4, 2026 |
+| Real PayPal Sandbox operation | USD 1.00 Capture `COMPLETED` after browser approval and server-side order verification, with three saved host assessments. | Nov 3, 2026 |
 
-CLI steps make execution explicit. `propose-ai` stops after saving its governance
-result; the operator separately selects the Sandbox steps.
+The [demo video](https://youtu.be/KAn8YssR1hg) presents these records alongside working
+CLI examples and refusal cases. Their session coverage and input grade are described
+in [Scope and evidence](#scope-and-evidence).
 
-## Start without credentials
+## Run your first assessment
 
-Verified Windows configurations: Python **3.9.13** and **3.13.12**. The offline route
-uses the standard library and the included source closure. Use a short checkout path
-because some vendored paths are long.
-
-In PowerShell 5.1 or newer:
+Use Windows with Python **3.9.13** or **3.13.12**, the verified interpreter versions.
+The sample assessment uses the standard library and the included computation sources.
+Choose a short checkout path and a fresh environment. In PowerShell 5.1 or newer:
 
 ```powershell
 $repoUrl = 'https://github.com/wan593315006/H56-PayPal-Hackathon.git'
@@ -70,94 +76,71 @@ if ($LASTEXITCODE -ne 0) { throw 'Binding verification failed' }
 & $PY -B run_offline_tests.py
 ```
 
-If Python 3.13 is your installed version, use `py -3.13` when creating the environment.
-Keep `-B` on project commands: generated byte caches change the pinned core file set.
+Expected: `FEASIBLE`, 22 native calls, `BIND_FINDINGS=0` and `VERIFY_EXIT=0`.
+If selecting Python 3.13, create the environment with `py -3.13`. Keep `-B` on project
+commands to preserve the core's exact file set. Use a fresh stamp for each new run.
 
-For the unchanged sample catalogue, the evaluation returns `FEASIBLE` with 22 native
-calls, and `verify` returns `BIND_FINDINGS=0` / `VERIFY_EXIT=0`. The code baseline
-`ecbad1c` has **263 offline tests**. The guarded test entry reports network attempts
-separately and succeeds only when tests pass with zero attempted Python network calls.
+The [installation guide](docs/RECOVERY_GUIDE.md) covers environment setup, source
+verification and troubleshooting. The [demo guide](docs/DEMO_GUIDE.md) walks through
+policy refusals, host refusals, a model proposal and a buyer-approved Sandbox purchase.
 
-Use a fresh stamp for each new run. A taken stamp is refused rather than reused.
-The [recovery guide](docs/RECOVERY_GUIDE.md) explains setup, integrity checks, outputs,
-and troubleshooting. The [demo guide](docs/DEMO_GUIDE.md) includes positive and negative
-examples and their expected results.
+## Use the service integrations
 
-## Choose an exercise
+For a model-backed proposal, use `propose-ai --provider remote`. It saves the model's
+answer, parsed order, validation and provenance, then evaluates the proposal through
+the payment policy and H56. The operator selects Sandbox execution through the
+`sandbox` commands and approves the order in PayPal's browser flow.
 
-| Route | Credentials / network | What you can inspect |
-| --- | --- | --- |
-| Catalogue evaluation | None; offline | Business policy, synthetic host evidence, native verdict, and binding verification. |
-| Mock AI proposal | None; offline | The proposal interface and the same downstream policy/core chain, using a deterministic stand-in. |
-| Remote AI proposal | Your model API key; one model request | Model text, parsed proposal, validation, service receipt, usage, and the downstream result. |
-| PayPal Sandbox | Your Sandbox app and buyer account; PayPal API calls | Order creation, personal browser approval, server-side checks, Capture, and receipts. |
+Follow the [demo guide](docs/DEMO_GUIDE.md) for the two service exercises and
+[credential guide](docs/CREDENTIALS.md) for configuration. Model keys use a process
+environment variable such as `H56PAY_MODEL_KEY`; the optional
+[.env.example](.env.example) template covers PayPal configuration. The declared API-mode
+environment can be installed with your chosen interpreter and `requirements.txt`.
 
-For an offline AI-interface example:
+## Review decisions and receipts
 
-```powershell
-$aiStamp = [DateTime]::UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'")
-& $PY -B -m app.main propose-ai --provider mock --stamp $aiStamp --host-key hostAI01
-& $PY -B -m app.main verify --stamp $aiStamp --business shop
-```
-
-The mock names catalogue offer `S-C02` at USD 25.00. This command evaluates a proposal;
-it does not create a PayPal order. For a real model call and the separate Sandbox
-exercise, follow the [demo guide](docs/DEMO_GUIDE.md) and
-[credential guide](docs/CREDENTIALS.md).
-
-The model key is read from a process environment variable such as `H56PAY_MODEL_KEY`.
-The optional `.env` file is reserved for the three PayPal configuration names listed in
-[.env.example](.env.example). API-mode environment setup uses
-`python -m pip install -r requirements.txt`; use your selected environment's interpreter.
-
-## Inspect the results
-
-`runs/<stamp>_shop/` contains the request, evidence, result and binding. An AI run adds
-`ai_proposal/`: prompt, answer text, parsed proposal, validation and provenance.
-`records/<session>/` holds the native assessment, claim and event journal. Keep both
-directories together when preserving a run for later verification.
-
-Start the read-only evidence UI:
+The local evidence console displays saved orders, policy outcomes, native verdicts,
+record references and detected inconsistencies. Create assessments and run Sandbox
+operations through the CLI, then refresh the console to review their records:
 
 ```powershell
 & $PY -B ui/server.py --port 8848
 ```
 
-Open `http://127.0.0.1:8848/`, enter the local run token printed by the server, and load
-the runs or records view. The UI reads saved results; commands create evaluations and
-perform Sandbox actions. See [ui/README.md](ui/README.md).
+Open `http://127.0.0.1:8848/`, enter the server's printed token and load the runs or
+records view. See the [UI guide](ui/README.md) for the available views and local access
+controls.
 
-## Recorded demonstrations
-
-| Recorded run | Result | Code used |
-| --- | --- | --- |
-| 2026-11-03 PayPal Sandbox | USD 1.00 Capture `COMPLETED`, following browser approval and server-side verification; three saved host assessments. | `be15d4a` |
-| 2026-11-04 DeepSeek | `deepseek-flash` drafted `S-C01 / 100 / USD`; policy `ALLOW`, H56 `FEASIBLE`, 22 calls, independent binding verification passed; usage 511 input + 84 output tokens. | `ecbad1c` |
-
-These are separate recorded sessions. The model-only run made zero business-action
-calls. The Sandbox run used simulated funds. Host facts in this demonstration are
-labelled `SYNTHETIC_ONLY` in the evidence contract.
-
-The following stills are **historical evidence views from the demo video**, rather than
-new requests or the interactive UI:
+*Video still: archived DeepSeek service receipt, November 4, 2026.*
 
 ![Recorded AI proposal and service evidence](docs/images/ai-evidence-replay.png)
 
+*Video still: archived PayPal Sandbox receipt, November 3, 2026.*
+
 ![Recorded PayPal Sandbox receipt](docs/images/sandbox-evidence-replay.png)
 
-The published demo video retains historical CLI footage from `86e20a4` and its 186-test
-snapshot, and adds the later AI evidence from `ecbad1c`. Each segment retains its source
-identity. Current repository test results are reported independently of that footage.
+## Scope and evidence
 
-## Project origins and hackathon updates
+| Area | Current scope |
+| --- | --- |
+| Host evidence | The demonstration uses the fixed `SYNTHETIC_ONLY` contract. The native cores evaluate supplied host facts; this build uses synthetic inputs rather than a live host-attestation collector. |
+| Recorded service sessions | The November 4 DeepSeek record covers model proposal through assessment and binding. The November 3 Sandbox record covers a catalogue order through buyer approval and Capture. These are two recorded sessions; a same-session live-model-to-Capture run is outside the published evidence set. |
+| Qualification and approval | `FEASIBLE` describes host eligibility. Payment policy validates business terms, and PayPal supplies the independently checked buyer-approval state. |
+| Video and screenshots | The video combines CLI recordings with labelled historical evidence views. The screenshots above reproduce saved receipts from those views. |
+| Console and commands | The console is a read-only record viewer. CLI commands create assessments and perform the explicitly selected Sandbox steps. |
+| Payment environment | The executor uses PayPal Sandbox and simulated funds. |
 
-H56 PayPal builds on our existing H56 governance research and published computation
-core. The reused core is byte-pinned in [VENDORED.md](VENDORED.md), with source release
-`83484f79ad387296e623376f41b84bf1fb20d8ba` and upstream core identity
-`9221e16460258bc81e1176d69f63a09f81159b73`.
+Preserve `runs/<stamp>_shop/` together with its referenced `records/<session>/` when
+archiving a decision. The run holds request, evidence, result and binding; the native
+session holds the assessment, claim and event journal. AI runs also include the five
+files in `ai_proposal/`.
 
-During the PayPal AI Hackathon, we developed the payment application in a separate
-repository. The implementation history records these additions on November 3–4, 2026:
+## Project origins and hackathon work
+
+H56 PayPal builds on our earlier H56 governance research. During this hackathon we
+created the payment application in a separate repository, retaining the four native
+cores and adding the payment policy, order binding, model provider, Sandbox executor
+and evidence console.
 
 | Date | Payment-project addition | Commit |
 | --- | --- | --- |
@@ -169,34 +152,55 @@ repository. The implementation history records these additions on November 3–4
 | Nov 4 | Reproduction instructions, dependency compatibility and English UI text | `c8732e0` through `86e20a4` |
 | Nov 4 | Structured AI proposals, service receipts and input-boundary checks | `8115047` through `ecbad1c` |
 
-The four native cores remain unchanged. The contribution of this submission is the
-payment-specific application, its explicit decision boundaries and its inspectable
-integration evidence. Dates above are Git check-in dates.
+The table records Git check-in dates. The reused core's source identities and member
+hashes are recorded in [VENDORED.md](VENDORED.md).
 
-## Repository map
+## Engineering verification
+
+The included core contains **139 computation members plus their source declaration**.
+`selfcheck` verifies their file set and hashes, checks the fixed assets, runs 30 native
+cases and exercises cold imports. The complete application baseline `ecbad1c` passes
+**263 offline tests** through `run_offline_tests.py`, with zero attempted Python network
+calls in the guarded process.
+
+The video retains CLI footage from `86e20a4` with its 186-test result. Its later AI
+evidence segment uses `ecbad1c`; the historical Sandbox session used `be15d4a`. The
+recordings preserve their original version labels.
+
+For an offline test of the AI proposal interface, use the deterministic Mock provider:
+
+```powershell
+$aiStamp = [DateTime]::UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'")
+& $PY -B -m app.main propose-ai --provider mock --stamp $aiStamp --host-key hostAI01
+& $PY -B -m app.main verify --stamp $aiStamp --business shop
+```
+
+This fixture proposes `S-C02` at USD 25.00 and records `provider=mock`. It exercises the
+proposal interface, payment rules, native cores and binding locally, without contacting
+a model service or PayPal.
+
+## Repository layout
 
 | Path | Purpose |
 | --- | --- |
-| `h56_core/` | 139 pinned computation members plus `SOURCE_MANIFEST.json`; includes the vendor closure. |
+| `h56_core/` | Native cores, vendor dependencies and source declaration. |
 | `app/` | Proposal handling, payment policy, binding, recovery and Sandbox integration. |
-| `fixtures/catalog.json` | Authoritative sample offers, prices, currencies and logical payees. |
-| `ui/` | Standard-library, read-only evidence console. |
-| `tests/`, `run_offline_tests.py` | Engineering regression tests and the guarded test entry. |
-| `docs/` | Demo, credential and recovery instructions. |
-| `VENDORED.md`, `.gitattributes` | Provenance and byte-preservation policy. |
+| `fixtures/catalog.json` | Sample offers, prices, currencies and logical payees. |
+| `ui/` | Local evidence console. |
+| `tests/`, `run_offline_tests.py` | Regression cases and the guarded test entry. |
+| `docs/` | Demo, credential and installation instructions. |
+| `VENDORED.md`, `.gitattributes` | Source provenance and byte-preservation policy. |
 
-Runtime data, credentials and internal construction scripts are kept outside the public
-source distribution. The source checkout contains everything required for the no-key
-route; it has no separate slice-activation step.
+The checkout supplies the complete source for local execution. Runtime outputs,
+credentials and private development evidence stay outside the public distribution.
 
 ## Development direction
 
-Next development directions are versioned host-evidence collectors, richer payment
-contracts, and a guided operator workflow that preserves the same separation between
-proposal, eligibility, authorization and execution.
+Next steps are versioned host-evidence collectors, richer payment contracts and a
+guided operator workflow that keeps proposal, qualification, approval and execution
+explicit.
 
 ## License
 
 Copyright (c) 2026 万根. Distributed under the complete [MIT License](LICENSE).
-[IP_NOTICE.md](IP_NOTICE.md) records the intellectual-property notice without modifying
-the MIT terms.
+[IP_NOTICE.md](IP_NOTICE.md) contains the accompanying intellectual-property notice.

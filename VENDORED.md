@@ -1,9 +1,8 @@
-# Vendored source identity
+# Core provenance and verification
 
-This package ships one frozen computation closure and does not edit it in place.
-Every member below is pinned by byte, and `app.main selfcheck` re-verifies the whole
-table on every run. There is no second source of truth: if a row does not match the
-disk, the package is not the package that was assembled.
+H56 PayPal includes the original computation sources and their dependencies as a
+versioned source closure. The table below records the release, upstream core and
+member hashes. `app.main selfcheck` checks the shipped files against this identity.
 
 | field | value |
 | --- | --- |
@@ -166,21 +165,18 @@ disk, the package is not the package that was assembled.
 | 138 | `runtime_windows/source_identity.py` | 11985 | `36a3dce890ce107995870fad4d07d6a57d4b31ba921c211a2f7acbbd52637f7c` |
 | 139 | `runtime_windows/task_store.py` | 7556 | `49aa85953a12c56d56cac243dd2fe942d374b55a7ba1eb05435a57a5ff166ebd` |
 
-## Why the 140th file is not a member
+## Source declaration
 
-`offline_qualification_v1/SOURCE_MANIFEST.json` is the declaration itself. A manifest
-cannot contain its own sha256, so it is excluded from `runtime_required` by construction
-and shipped as the one extra file. It is copied verbatim: re-serialising it would change
-key order and whitespace, and `assets.source_manifest()` would reject the result before
-any native byte is imported.
+`offline_qualification_v1/SOURCE_MANIFEST.json` is the declaration for the 139 runtime
+members. Its own hash is verified independently, giving 140 files in `h56_core/`.
+The declaration is preserved verbatim so its byte identity includes key order and
+whitespace.
 
 ## Registered drive-letter literals (negative test payloads)
 
-Three literal occurrences in two member files look like absolute Windows paths. They are
-*inputs that must be rejected*, not references to any host directory, and they belong to
-the boundary test suite. They are registered here by location so a scan can tell them
-apart from an accidental leak. The literal text is deliberately not reproduced in this
-document, so that this file introduces no new path-like string of its own.
+The boundary suite contains three absolute-path-shaped inputs in two member files.
+Their purpose is to exercise rejection of paths outside the permitted root. This
+register identifies each fixture by file, line and role for source review.
 
 | file | line | role |
 | --- | ---: | --- |
@@ -190,10 +186,9 @@ document, so that this file introduces no new path-like string of its own.
 
 ## Dependency posture
 
-The frozen closure and the offline path import standard-library modules and vendored
-bytes only: no third-party package is needed to run `selfcheck` or the offline
-qualification chain. Real-mode components added in later stages live in `app/` and
-declare their own pins in `requirements.txt`.
+The closure and offline path use the standard library and included dependencies.
+Application integrations live in `app/`; the declared API-mode package range is in
+`requirements.txt`.
 
 ## How to verify
 

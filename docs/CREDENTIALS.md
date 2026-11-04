@@ -1,8 +1,8 @@
 # Credentials and API configuration
 
-Catalogue evaluation, the mock proposal route, self-checks, the evidence UI and offline
-tests work without service credentials. Remote AI and PayPal Sandbox are separate,
-explicitly selected routes.
+Run the catalogue examples, Mock proposal tests and evidence console locally, then
+configure the model or PayPal Sandbox service you want to use. The local exercises
+work without service credentials.
 
 ## Configuration names
 
@@ -13,9 +13,9 @@ explicitly selected routes.
 | `PAYPAL_CLIENT_SECRET` | Matching Sandbox REST app secret | Process environment, or local `.env`. |
 | `PAYPAL_ENVIRONMENT` | Selects the Sandbox configuration | Process environment, or local `.env`; value `sandbox`. |
 
-The model key's **variable name**, rather than its value, appears in the CLI. PayPal
-configuration names, including case variants, are reserved and rejected as model-key
-names. Model calls do not load a key from `.env`.
+Pass the model key's **variable name** through `--key-env` and set its value in the
+process environment. PayPal configuration names, including case variants, are reserved
+for the Sandbox configuration. The optional `.env` loader accepts PayPal settings only.
 
 ## Enter credentials in an unrecorded PowerShell session
 
@@ -89,5 +89,5 @@ Review evidence copies before publication and preserve their hashes.
 
 Reviewers can run the complete offline route immediately. To exercise remote services,
 use your own model API account and PayPal Sandbox app, following these configuration
-steps. Any separately arranged testing access belongs in the submission's testing
-instructions, with its scope and lifetime stated there.
+steps. Describe any separately arranged testing access in the submission's testing
+instructions, including its scope and lifetime.

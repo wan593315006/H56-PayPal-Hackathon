@@ -1,48 +1,51 @@
-# Read-only evidence console
+# Evidence console
 
-The console reads this checkout's `runs/` and `records/`. CLI commands create the
-evaluations; the console presents their saved orders, policy outcomes, native verdicts
-and record references. It uses the Python standard library and imports neither `app`
-nor the native core.
+The console brings this checkout's saved orders, policy outcomes, native verdicts and
+record references into one view. Use the CLI to create assessments and run Sandbox
+operations, then open the console to follow the records and inspect discrepancies.
 
-From the repository root, using the environment selected in the main README:
+## Start the console
+
+From the repository root, using the interpreter selected in the main README:
 
 ```powershell
 & $PY -B ui/server.py --port 8848
 ```
 
-Open `http://127.0.0.1:8848/`. Copy the `TOKEN` printed by the server into the page's run
-token field, then load the runs or records view. Stop the server with Ctrl+C. If that
-port is occupied, choose a free port and use the same number in the URL.
+Open `http://127.0.0.1:8848/`, enter the `TOKEN` printed by the server and load the runs
+or records view. Stop the server with Ctrl+C. If the port is occupied, choose a free
+port and use that number in the URL.
 
-## What to inspect
+## Explore the records
 
-- **Runs:** the business policy, displayed verdict, native-call count, permission flags
-  and available evidence files.
-- **Run detail:** the saved order, references and binding document.
-- **Records:** the assessment identity, artifact decision, related run, journal state
-  and any disagreement between displayed and stored decisions.
-- **Refused entries:** files or directories denied by the read boundary.
+- **Runs:** review the order, payment policy, native verdict, call count, permission
+  flags and available evidence files.
+- **Run detail:** inspect the saved order, references and binding document.
+- **Records:** follow an assessment to its artifact decision, related run and journal;
+  inspect any disagreement between the displayed and stored result.
+- **Refused entries:** see which files or directories the read boundary denied.
 
-The page's binding indicator checks saved-byte consistency. For the complete
-request/evidence/native-record comparison, run the CLI's `verify` command as shown in
-[the demo guide](../docs/DEMO_GUIDE.md). That comparison reads the original assessment;
-it does not ask the kernel for a new decision.
+The binding indicator checks saved-byte consistency. For the complete request,
+evidence and native-record comparison, run the CLI's `verify` command from
+[the demo guide](../docs/DEMO_GUIDE.md). It compares the saved assessment with the
+original native record.
 
-## Local access boundary
+## Local access and data handling
 
-The listener binds to `127.0.0.1`. The Host header must be exactly
-`127.0.0.1:<port>`; use that URL rather than `localhost`. API requests need
-`X-H56-Run-Token`, generated at server startup. The page retains it in sessionStorage;
-restart the server and enter the new token after a 401 response. POST API requests must
-have an empty JSON object body. The token isolates a local server session rather than
-identifying a person.
+The console is a read-only local viewer built with the Python standard library. It
+reads `runs/` and `records/` and imports neither `app` nor the native core. Assessment,
+buyer approval and payment operations belong to the CLI and PayPal browser flow.
+
+The listener binds to `127.0.0.1`, and the Host header must match
+`127.0.0.1:<port>`. API requests require `X-H56-Run-Token`, generated at server startup.
+The page keeps the token in sessionStorage; after a restart, enter the new token if
+the API returns 401. POST API requests accept an empty JSON object body. The token
+identifies a local server session rather than a user account.
 
 Reads check directory reparse points/symbolic links and the resolved path against the
-permitted roots. A denied redirection appears as `PATH_OUTSIDE_ROOT`; it is not silently
-presented as an absent result. A displayed decision is matched by assessment ID. A
-missing match is shown as unknown, and an artifact/run disagreement is flagged.
+permitted roots. Redirection refusals appear as `PATH_OUTSIDE_ROOT`. Decisions are
+matched by assessment ID; missing matches appear as unknown and artifact/run conflicts
+are flagged. Hard links and check/read races are outside these path checks.
 
-This is a local inspection interface. Its path checks cover the tested redirection
-cases; hard links and check/read races remain outside that protection. It does not
-create assessments, approve orders or submit payments.
+The [project scope summary](../README.md#scope-and-evidence) describes the demonstration
+inputs and recorded service sessions.

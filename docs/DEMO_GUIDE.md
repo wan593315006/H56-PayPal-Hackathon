@@ -1,8 +1,9 @@
 # Demo guide
 
-The examples separate business-policy decisions, native host-eligibility decisions and
-buyer approval. Run them from the repository root in PowerShell 5.1 or newer. Complete
-the environment setup in the [main README](../README.md) first.
+Use these exercises to inspect a successful assessment, policy and host refusals,
+model-generated proposals and a buyer-approved Sandbox purchase. Run them from the
+repository root in PowerShell 5.1 or newer, after the setup in the
+[main README](../README.md).
 
 The [published demonstration video](https://youtu.be/KAn8YssR1hg) shows the recorded
 positive and refusal examples, the real-model evidence view and the historical Sandbox
@@ -36,8 +37,8 @@ $positiveStamp = New-H56Stamp
 
 Expected: payment policy `ALLOW`, H56 `FEASIBLE`, 22 returned native calls; verification
 prints `BIND_FINDINGS=0` and exits 0. `authority_granted` and `execution_permitted` are
-false and `business_action_calls=0`. This demonstrates qualification and binding, not
-buyer approval.
+false and `business_action_calls=0`. The saved assessment supplies the qualification
+and binding record; the Sandbox exercise obtains buyer approval through PayPal.
 
 ## 3. Business-policy stops
 
@@ -52,8 +53,8 @@ $priceStamp = New-H56Stamp
 Both evaluations deliberately exit 3. The first names `POLICY_AMOUNT_LIMIT_EXCEEDED`
 because the sample per-order limit is 5000 minor units. The second names
 `POLICY_AMOUNT_NOT_CATALOGUE_PRICE`: S-C01 costs 100, even though 1 is below the limit.
-Their results record `BLOCKED` and `h56_invoked=false`. These stops belong to the payment
-policy; they are not native-core refusals.
+Their results record `BLOCKED` and `h56_invoked=false`, identifying the payment policy
+as the source of the stop.
 
 ## 4. Native host-eligibility stop
 
@@ -76,14 +77,15 @@ $mockStamp = New-H56Stamp
 & $PY -B -m app.main verify --stamp $mockStamp --business shop
 ```
 
-The deterministic stand-in proposes S-C02 at 2500 USD minor units. Provenance explicitly
-records `provider=mock`. The proposal then enters the real policy and native-core chain.
-No model service or PayPal API is contacted.
+The deterministic fixture proposes S-C02 at 2500 USD minor units and records
+`provider=mock`. This offline mode exercises the proposal interface and downstream
+policy, native-core and binding checks without service requests. Section 7 uses a
+model service for the same proposal interface.
 
 ## 6. Constructed freshness refusal, offline
 
-This constructs a past evaluation using supported inputs. It does not edit any saved
-timestamp or state file.
+Construct a past evaluation through the supported `--as-of` input while preserving
+existing records.
 
 ```powershell
 $oldStamp = New-H56Stamp
@@ -98,9 +100,9 @@ service authentication or an order request. The example merchant address is synt
 
 ## 7. One real model proposal
 
-**Networked exercise:** one CLI invocation requests one model response. The request
-sets `max_tokens=512`, caps the response read and has no application-level inference
-retry. Repeating the command makes another request.
+**Networked exercise:** each invocation requests one model response with
+`max_tokens=512` and a bounded response read. The application sends the request once;
+repeating the command starts another request.
 
 Install the declared API-mode environment if needed, and define `Set-H56ProcessSecret`
 from the [credential guide](CREDENTIALS.md). The following endpoint/model pair was used
@@ -127,15 +129,16 @@ A successful run saves five AI evidence files beside its governance result:
 | File | Meaning |
 | --- | --- |
 | `01_prompt.txt` | Catalogue and output instructions sent to the model. |
-| `02_raw_response.txt` | Extracted answer text; this is not the complete HTTP response body. |
+| `02_raw_response.txt` | Answer content extracted from the HTTP response envelope. |
 | `03_proposal.json` | Parsed structured proposal. |
 | `04_validation.json` | Field-set and type-check summary. |
 | `05_provenance.json` | Provider/configuration, service id/model/usage, byte counts, elapsed time and hashes. |
 
-Read configured and returned model separately. Providers that omit receipt fields are
-recorded as `missing`. A structural refusal is a stop rather than a reason to silently
-choose a different proposal. The selected offer and amount may differ from a previous
-call. `propose-ai` performs the governance evaluation; it does not submit a payment.
+Provenance records configured and returned model separately, and marks omitted receipt
+fields as `missing`. Inspect a structural refusal before choosing another action.
+Model responses can select different offers and amounts on different calls.
+`propose-ai` saves the proposal and its governance assessment. Section 8 demonstrates
+the Sandbox execution interface using the controlled USD 1.00 catalogue offer.
 
 ## 8. PayPal Sandbox: one controlled USD 1.00 operation
 
@@ -184,9 +187,8 @@ finally {
 }
 ```
 
-The terminal prompt is an operator checkpoint, not buyer authorization. PayPal must
-independently return `APPROVED`. A callback landing page is not a payment receipt; use
-the status API to establish the actual order state.
+Capture requires both the operator's instruction and PayPal's `APPROVED` server state.
+After the browser redirect, query the status API for the order's actual state.
 
 Successful Capture reports `COMPLETED` and `settled=true`. `PENDING` is reported as
 unsettled with a nonzero exit. Keep the original order and inspect it rather than
@@ -211,9 +213,9 @@ $freshStamp = New-H56Stamp
 
 `status` still requires a fresh valid assessment, but it can query an existing order
 after the 900-second proposal window. A later Capture is refused for an expired
-proposal. Preserve the old operation; explicitly confirm any new purchase before
-creating another order. Missing credentials produce a named stop, not an automatic
-switch to Mock. A creation attempt can save local intent before that credential stop.
+proposal. Preserve the old operation and explicitly confirm any new purchase before
+creating another order. Missing credentials produce a named stop. A creation attempt
+can save local intent before that credential stop.
 
 ## 9. Preserve and inspect a run
 
@@ -222,6 +224,8 @@ assessment artifact with the full native-call trace, its claim and its event jou
 AI provenance hashes cover prompt/answer/proposal; the binding connects the business
 order, request, evidence and native record. A later `verify` needs both sides.
 
-The [UI](../ui/README.md) is a local read-only view. It starts no new assessment or
-payment. Its byte-consistency indicator and the CLI's full record comparison have
-different scopes; use `verify` when reviewing an archived decision.
+Use the [evidence console](../ui/README.md) to review saved runs and related native
+records. Its binding indicator checks saved-byte consistency; `verify` adds the full
+request, evidence and native-record comparison. See
+[Scope and evidence](../README.md#scope-and-evidence) for the demonstration's input
+grade and recorded-session coverage.
