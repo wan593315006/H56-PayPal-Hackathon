@@ -428,6 +428,7 @@ def propose_ai_command(arguments):
         return EXIT_USAGE
     catalog = policy.load_catalog()
     prompt = proposal_ai.build_prompt(catalog)
+    provider = None
     try:
         if arguments.provider == "mock":
             provider = proposal_ai.MockProvider(arguments.mock_response)
@@ -437,7 +438,14 @@ def propose_ai_command(arguments):
             provider = proposal_ai.RemoteProvider(arguments.base_url, arguments.model,
                                                   arguments.key_env)
         raw = provider.complete(prompt)
-        proposal = proposal_ai.parse_proposal(raw)
+        # F2 ordering: the proposal JSON is decoded a second time inside
+        # parse_proposal, so the credential-echo check is carried into it -- after
+        # that decode, before any shape validation or error detail built from a
+        # server-chosen value (a rejected order_id, for one) can carry the
+        # credential onward. The provider owns the key and hands over only the
+        # substring that must not survive anywhere.
+        proposal = proposal_ai.parse_proposal(raw,
+                                              forbidden=provider.forbidden_substring())
         # Encodability before the run directory: a response that cannot exist as UTF-8
         # bytes must not cost a directory, however empty.
         proposal_ai.check_encodable(raw)
@@ -454,8 +462,19 @@ def propose_ai_command(arguments):
         print("DETAIL    %s" % error)
         return EXIT_USAGE
     except proposal_ai.ProposalAIError as error:
+        # Last line of the never-in-logs contract: a refusal raised *during* the
+        # decode -- before the ordered echo check above could run -- could carry
+        # server-chosen text in its detail. The code is safe to name; the detail is
+        # re-checked here, and one that echoes the credential is withheld, not
+        # printed.
+        detail = str(error)
+        if provider is not None:
+            try:
+                provider.assert_no_echo(detail)
+            except proposal_ai.ProposalAIError:
+                detail = "(detail withheld: echoed credential)"
         print("AI        REFUSED code=%s" % error.code)
-        print("DETAIL    %s" % error)
+        print("DETAIL    %s" % detail)
         return EXIT_USAGE
     print("AI        PROPOSAL provider=%s offer=%s amount=%s order=%s" % (
         provider.name, proposal["offer_id"], proposal["amount_minor"],

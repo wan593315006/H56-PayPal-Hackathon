@@ -175,11 +175,17 @@ def _reject_float(value):
 
 
 def _object_pairs(pairs):
-    """json.loads object_pairs_hook: the last duplicate key must not silently win."""
+    """json.loads object_pairs_hook: the last duplicate key must not silently win.
+
+    The refusal names the condition, not the server's text: a duplicate key's name
+    is server-chosen too, and this error is raised *during* the decode -- before the
+    ordered echo check below could ever run -- so a credential sitting in a duplicate
+    key name must not ride out of here inside the detail.
+    """
     seen = set()
     for key, _value in pairs:
         if key in seen:
-            raise ProposalAIError("PROPOSAL_AI_DUPLICATE_KEY", key)
+            raise ProposalAIError("PROPOSAL_AI_DUPLICATE_KEY")
         seen.add(key)
     return dict(pairs)
 
@@ -205,8 +211,55 @@ def _check_field(key, value):
         raise ProposalAIError("PROPOSAL_AI_FIELD_TOO_LONG", key)
 
 
-def parse_proposal(text):
-    """Strict structural validation. The catalogue and policy stay downstream of this."""
+# The decoded-document echo walk is bounded like every other server-shaped input:
+# past the node bound the walk refuses outright instead of covering part of the
+# document -- a partial echo check is worse than none, because it looks like one.
+ECHO_WALK_MAX_NODES = 4096
+
+
+def _refuse_echo(document, secret):
+    """Walk every decoded string of a parsed JSON document -- keys included -- and
+    refuse the credential.
+
+    Byte-level containment sees the wire; this sees what `json.loads` hands back.
+    JSON lets any character travel as \\uXXXX, so a credential can be absent from the
+    raw bytes and still arrive, fully decoded, inside any string of the parsed
+    document: the answer content, an unrecognized envelope field, a proposal field.
+    Both layers are kept -- they are a union, and neither can replace the other.
+
+    The walk is iterative (a parsed document can be deeper than the Python recursion
+    limit would survive a recursive walker) and node-bounded, and exceeding the bound
+    is itself a named refusal -- fail-closed, never a partial scan.
+    """
+    stack = [document]
+    seen = 0
+    while stack:
+        node = stack.pop()
+        seen += 1
+        if seen > ECHO_WALK_MAX_NODES:
+            raise ProposalAIError("PROPOSAL_AI_RESPONSE_TOO_COMPLEX", "echo-walk")
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(key, str) and secret in key:
+                    raise ProposalAIError("PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+                stack.append(value)
+        elif isinstance(node, list):
+            stack.extend(node)
+        elif isinstance(node, str):
+            if secret in node:
+                raise ProposalAIError("PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+
+
+def parse_proposal(text, forbidden=None):
+    """Strict structural validation. The catalogue and policy stay downstream of this.
+
+    `forbidden` carries the one credential this response must not survive into. When
+    given, the echo check runs on the decoded document *immediately after the
+    decode* -- before any shape validation, before any error detail is built from a
+    server-chosen value, before anything can print or persist it. The shape refusals
+    below quote server text (a rejected order_id, for one) only because this check
+    has already proven that text credential-free.
+    """
     raw = extract_json_object(text)
     try:
         document = json.loads(raw, parse_float=_reject_float,
@@ -217,6 +270,8 @@ def parse_proposal(text):
         raise ProposalAIError("PROPOSAL_AI_JSON_TOO_DEEP") from None
     except ValueError as error:
         raise ProposalAIError("PROPOSAL_AI_MALFORMED_JSON", str(error)[:120]) from None
+    if forbidden:
+        _refuse_echo(document, forbidden)
     if type(document) is not dict:
         raise ProposalAIError("PROPOSAL_AI_NOT_OBJECT", type(document).__name__)
     expected = set(PROPOSAL_KEYS)
@@ -254,6 +309,10 @@ class MockProvider:
 
     def assert_no_echo(self, _text):
         """No credential is ever involved on the mock path; nothing to refuse."""
+        return None
+
+    def forbidden_substring(self):
+        """No credential on the mock path, so nothing is forbidden."""
         return None
 
     def meta(self):
@@ -328,6 +387,18 @@ class RemoteProvider:
         if self._last_key and self._last_key in text:
             raise ProposalAIError("PROPOSAL_AI_RESPONSE_ECHOES_KEY")
 
+    def forbidden_substring(self):
+        """The credential of the last completed call, for the ordered echo check.
+
+        The command layer passes it into `parse_proposal(..., forbidden=...)` so the
+        check lands between the second decode and the first shape validation -- the
+        ordering that keeps server-chosen error details (a rejected order_id, for one)
+        credential-free by construction. `None` until a call completes. The value is
+        already resident in the process environment for the life of the process; this
+        reference adds no exposure and is never logged, never written, never evidenced.
+        """
+        return self._last_key
+
     def _request(self, prompt, key):
         """Build the POST request. Exposed for tests: no socket is opened here."""
         body = json.dumps({
@@ -385,12 +456,15 @@ class RemoteProvider:
         # The answer body is server-chosen text, exactly like the receipt fields: a
         # credential echoed back inside the content would land in the raw-response
         # evidence file byte for byte, and -- parsed -- ride into the proposal, the
-        # result and the binding. The containment runs against the whole wire payload,
-        # not just the extracted content: an unrecognized envelope field must not
-        # become a side channel either. (The JSON-escaping gap for exotic credentials
-        # is closed separately by the decoded-field check in the command layer.)
+        # result and the binding. Two layers, kept because they are a union and
+        # neither can replace the other: the whole *wire payload* is checked as raw
+        # bytes (an unrecognized envelope field must not become a side channel), and
+        # the whole *decoded document* is walked (JSON lets any ASCII character
+        # travel as \uXXXX, so a credential can be absent from the raw bytes and
+        # still arrive, fully decoded, inside the content that evidence saves).
         if key.encode("utf-8") in payload:
             raise ProposalAIError("PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+        _refuse_echo(document, key)
         # The receipt is what the server said about the call, kept beside the content
         # it describes: id, model echo and usage are what a bill or an audit asks for,
         # and the digest is taken over the exact bytes that arrived. A field the server

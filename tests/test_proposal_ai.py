@@ -77,7 +77,39 @@ class ParseTest(unittest.TestCase):
         with self.assertRaises(proposal_ai.ProposalAIError) as caught:
             proposal_ai.parse_proposal(text)
         self.assertEqual(caught.exception.code, "PROPOSAL_AI_DUPLICATE_KEY")
-        self.assertIn("offer_id", str(caught.exception))
+        # The duplicate key's NAME is server-chosen text, and this refusal fires
+        # during the decode -- before the ordered echo check could run -- so the
+        # detail carries none of it (F2-B: a credential in a duplicate key name
+        # must not ride out inside the error message).
+        self.assertNotIn("S-C01", str(caught.exception))
+
+    def test_decoded_echo_is_refused_before_shape_validation(self):
+        # F2-B at the parser layer: the credential arrives escaped (as uXXXX runs)
+        # inside an invalid order_id, so no wire- or content-level check can see it;
+        # the ordered check after the second decode must refuse before the shape
+        # error that would otherwise quote the value is ever built.
+        canary = "sk-AUDIT-FAKE-KEY-0411"
+        escaped = "".join("\\u%04x" % ord(char) for char in canary)
+        text = _valid({"order_id": "." + canary}).replace(canary, escaped)
+        self.assertNotIn(canary, text)  # the transport really carries only escapes
+        try:
+            proposal_ai.parse_proposal(text, forbidden=canary)
+        except proposal_ai.ProposalAIError as caught:
+            self.assertEqual(caught.code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+        else:
+            self.fail("decoded echo was not refused")
+        # Control: the same ordered check accepts clean input untouched.
+        self.assertEqual(proposal_ai.parse_proposal(_valid(), forbidden=canary),
+                         json.loads(proposal_ai.MOCK_RESPONSE_DEFAULT))
+
+    def test_echo_walk_past_the_node_bound_fails_closed(self):
+        # A document too large for the walk is a named refusal, not a partial scan:
+        # a partial echo check would look like coverage while covering less.
+        crowd = ["filler"] * (proposal_ai.ECHO_WALK_MAX_NODES // 2)
+        document = {"a": crowd, "b": crowd, "c": crowd}
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai._refuse_echo(document, "canary")
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_RESPONSE_TOO_COMPLEX")
 
     def test_newline_in_order_id_is_refused(self):
         with self.assertRaises(proposal_ai.ProposalAIError) as caught:
@@ -193,6 +225,12 @@ class RemoteProviderRefusalTest(unittest.TestCase):
                 os.environ["H56PAY_TEST_NO_SUCH_KEY"] = saved
         self.assertEqual(caught.exception.code, "PROPOSAL_AI_CREDENTIALS_MISSING")
         self.assertIn("H56PAY_TEST_NO_SUCH_KEY", str(caught.exception))
+
+    def test_forbidden_substring_is_none_until_a_call_completes(self):
+        # The ordered echo check must be a no-op before any call: no key, nothing
+        # forbidden.
+        provider = proposal_ai.RemoteProvider("https://api.example.com", "m", "KEY_ENV")
+        self.assertIsNone(provider.forbidden_substring())
 
     def test_meta_never_carries_a_key_value(self):
         provider = proposal_ai.RemoteProvider("https://api.example.com", "m", "KEY_ENV")
@@ -439,6 +477,45 @@ class RemoteFailureFamilyTest(unittest.TestCase):
         # never reads must not become a credential side channel either.
         body = json.dumps({"note": "secret-value", "choices": [
             {"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+
+    @staticmethod
+    def _unicode_escape_wire(envelope, canary):
+        """Re-spell the canary as legal per-character uXXXX escapes on the wire.
+
+        json.dumps leaves plain ASCII alone, so the escapes are applied afterwards:
+        the result is the same envelope, byte-legal for any compliant parser, with
+        no literal credential bytes anywhere in the payload.
+        """
+        escaped = "".join("\\u%04x" % ord(char) for char in canary)
+        return (envelope.encode("utf-8")
+                .replace(canary.encode("utf-8"), escaped.encode("ascii")))
+
+    def test_unicode_escaped_content_echo_is_refused(self):
+        # F2-A, parser layer: 5f46371 refused this, 995c287 passed it through into
+        # 02_raw_response.txt -- the wire-byte check alone cannot see a credential
+        # spelled as legal uXXXX escapes, while the decoded content (what evidence
+        # saves) carries it literally. The decoded-document walk restores the union.
+        canary = "sk-AUDIT-FAKE-KEY-0411"
+        os.environ[self.KEY_ENV] = canary  # the credential this call uses
+        envelope = json.dumps({"choices": [{"message": {"content":
+            canary + "\n" + proposal_ai.MOCK_RESPONSE_DEFAULT}}]})
+        body = self._unicode_escape_wire(envelope, canary)
+        self.assertNotIn(canary.encode("utf-8"), body)  # wire really carries escapes
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+        self.assertIsNone(self.provider.last_receipt)
+
+    def test_unicode_escaped_envelope_field_echo_is_refused(self):
+        # Same spelling, side-field channel: not even the content check sees this --
+        # the decoded walk over the whole envelope is what closes it.
+        canary = "sk-AUDIT-FAKE-KEY-0411"
+        os.environ[self.KEY_ENV] = canary
+        envelope = json.dumps({"note": "key was " + canary, "choices": [
+            {"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]})
+        body = self._unicode_escape_wire(envelope, canary)
+        self.assertNotIn(canary.encode("utf-8"), body)
         _opener, outcome = self._run(_FakeResponse(200, body))
         self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
 
@@ -721,6 +798,44 @@ class EndToEndTest(unittest.TestCase):
             body, "H56PAY_TEST_ESC_KEY", canary)
         self.assertEqual(code, app_main.EXIT_USAGE)
         self.assertIn("PROPOSAL_AI_RESPONSE_ECHOES_KEY", output)
+        self.assertNotIn(canary, output)
+        self.assertFalse((settings.RUNS_ROOT / "20261104T000000Z_shop").exists())
+
+    def test_outer_unicode_escaped_content_echo_refused_at_cli_level(self):
+        # F2-A pinned at the CLI layer, the exact 995c287 regression: the canary is
+        # spelled as legal uXXXX escapes in the outer HTTP JSON, so the wire-byte
+        # check passes -- and 995c287 exited 0 with the decoded canary saved into
+        # 02_raw_response.txt. The refusal must be named, the output clean, the
+        # filesystem untouched.
+        canary = "sk-AUDIT-FAKE-KEY-0411"
+        envelope = json.dumps({"choices": [{"message": {"content":
+            canary + "\n" + proposal_ai.MOCK_RESPONSE_DEFAULT}}]})
+        body = RemoteFailureFamilyTest._unicode_escape_wire(envelope, canary)
+        self.assertNotIn(canary.encode("utf-8"), body)
+        code, output, opener = self._fake_remote_cli(
+            body, "H56PAY_TEST_F2A_KEY", canary)
+        self.assertEqual(code, app_main.EXIT_USAGE)
+        self.assertIn("PROPOSAL_AI_RESPONSE_ECHOES_KEY", output)
+        self.assertNotIn(canary, output)
+        self.assertFalse((settings.RUNS_ROOT / "20261104T000000Z_shop").exists())
+        self.assertIsNotNone(opener.opened)
+
+    def test_inner_unicode_escaped_invalid_field_echo_refused_at_cli_level(self):
+        # F2-B pinned at the CLI layer: the canary is escaped inside the *proposal*
+        # JSON, in an order_id whose leading dot fails the shape pin. The refusal
+        # must come from the ordered echo check -- before the shape error that used
+        # to quote repr(order_id) straight onto stdout -- and both versions leaked
+        # this way before the fix.
+        canary = "sk-AUDIT-FAKE-KEY-0411"
+        escaped = "".join("\\u%04x" % ord(char) for char in canary)
+        content = _valid({"order_id": "." + canary}).replace(canary, escaped)
+        self.assertNotIn(canary, content)
+        body = json.dumps({"choices": [{"message": {"content": content}}]}).encode("utf-8")
+        code, output, _opener = self._fake_remote_cli(
+            body, "H56PAY_TEST_F2B_KEY", canary)
+        self.assertEqual(code, app_main.EXIT_USAGE)
+        self.assertIn("PROPOSAL_AI_RESPONSE_ECHOES_KEY", output)
+        self.assertNotIn("PROPOSAL_AI_ORDER_ID_INVALID", output)
         self.assertNotIn(canary, output)
         self.assertFalse((settings.RUNS_ROOT / "20261104T000000Z_shop").exists())
 
