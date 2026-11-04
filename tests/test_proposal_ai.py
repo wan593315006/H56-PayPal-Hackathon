@@ -9,7 +9,10 @@ import json
 import os
 import tempfile
 import unittest
+import urllib.request
 from pathlib import Path
+
+from unittest import mock
 
 from app import main as app_main
 from app import proposal_ai, settings
@@ -34,9 +37,59 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(proposal["order_id"], "O-AI-DEMO-1")
 
     def test_braces_inside_strings_do_not_confuse_the_scanner(self):
-        text = _valid({"order_id": 'O-"X"-{weird}-1'})
-        proposal = proposal_ai.parse_proposal(text)
-        self.assertEqual(proposal["order_id"], 'O-"X"-{weird}-1')
+        # Scanner level: braces and quotes inside a string literal are opaque. (The
+        # field-level checks refuse such an order_id later; this test pins the scanner.)
+        text = 'prefix {"offer_id": "S-{weird}-\\"x", "n": 1} suffix'
+        spans, array_seen = proposal_ai._scan_top_level(text)
+        self.assertFalse(array_seen)
+        self.assertEqual(len(spans), 1)
+        self.assertEqual(text[spans[0][0]:spans[0][1]], '{"offer_id": "S-{weird}-\\"x", "n": 1}')
+
+    def test_second_object_is_a_refusal(self):
+        text = "%s\n%s" % (_valid(), _valid({"order_id": "O-SECOND"}))
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal(text)
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_MULTIPLE_OBJECTS")
+
+    def test_array_wrapped_object_is_a_refusal(self):
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal("[%s]" % _valid())
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_ARRAY_WRAPPED")
+
+    def test_bare_array_is_array_refusal(self):
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal('[1, 2, 3]')
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_ARRAY_WRAPPED")
+
+    def test_bracket_in_trailing_prose_is_refused(self):
+        # Fail-closed: the prompt forbids extra content, so prose carrying structure
+        # characters is refused rather than guessed around.
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal("%s\nsee reference [1] for details" % _valid())
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_ARRAY_WRAPPED")
+
+    def test_duplicate_key_does_not_silently_win(self):
+        text = ('{"offer_id": "S-C01", "offer_id": "S-C02", "order_id": "O-1",'
+                ' "amount_minor": 100, "currency": "USD", "payee": "PAYPAL-MERCHANT-SANDBOX-001"}')
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal(text)
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_DUPLICATE_KEY")
+        self.assertIn("offer_id", str(caught.exception))
+
+    def test_newline_in_order_id_is_refused(self):
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal(_valid({"order_id": "O-AI\nDEMO-1"}))
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_FIELD_CHARS")
+
+    def test_tab_in_payee_is_refused(self):
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal(_valid({"payee": "PAYPAL\tMERCHANT"}))
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_FIELD_CHARS")
+
+    def test_order_id_shape_is_pinned(self):
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal(_valid({"order_id": "O AI DEMO"}))
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_ORDER_ID_INVALID")
 
     def test_no_object_at_all(self):
         with self.assertRaises(proposal_ai.ProposalAIError) as caught:
@@ -52,12 +105,6 @@ class ParseTest(unittest.TestCase):
         with self.assertRaises(proposal_ai.ProposalAIError) as caught:
             proposal_ai.parse_proposal('{"offer_id": S-C01}')
         self.assertEqual(caught.exception.code, "PROPOSAL_AI_MALFORMED_JSON")
-
-    def test_array_is_not_an_object(self):
-        # A bare array has no brace at all, so the scanner refuses it before parsing.
-        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
-            proposal_ai.parse_proposal('[1, 2, 3]')
-        self.assertEqual(caught.exception.code, "PROPOSAL_AI_NO_JSON_OBJECT")
 
     def test_extra_key_is_a_refusal(self):
         text = _valid({"verdict": "FEASIBLE"})
@@ -124,6 +171,35 @@ class RemoteProviderRefusalTest(unittest.TestCase):
         self.assertEqual(meta["key_env"], "KEY_ENV")
         self.assertNotIn("key", "".join(str(value) for value in meta.values()).lower()
                          .replace("key_env", ""))
+
+    def test_redirect_is_refused_by_name(self):
+        # Zero-network check of the redirect refusal: the handler is invoked directly,
+        # the way urllib's default machinery would call it on a 3xx.
+        handler = proposal_ai._NoRedirect()
+        request = urllib.request.Request("https://api.example.com/chat/completions")
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            handler.redirect_request(request, None, 302, "Found",
+                                     {"Location": "http://elsewhere.example.com/x"},
+                                     "http://elsewhere.example.com/x")
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_REDIRECT_REFUSED")
+
+    def test_default_opener_carries_the_no_redirect_handler(self):
+        opener = urllib.request.build_opener(proposal_ai._NoRedirect)
+        self.assertTrue(any(isinstance(h, proposal_ai._NoRedirect) for h in opener.handlers))
+
+    def test_request_body_states_an_output_cap_and_sends_the_key(self):
+        provider = proposal_ai.RemoteProvider("https://api.example.com", "model-x", "KEY_ENV",
+                                              max_output_tokens=256)
+        request = provider._request("prompt text", "secret-value")
+        body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(body["max_tokens"], 256)
+        self.assertEqual(body["model"], "model-x")
+        self.assertEqual(request.get_header("Authorization"), "Bearer secret-value")
+        self.assertEqual(request.full_url, "https://api.example.com/chat/completions")
+        # The request object is built without touching the environment or the network.
+
+    def test_response_body_cap_constant_is_bounded(self):
+        self.assertLessEqual(proposal_ai.MAX_RESPONSE_BYTES, 4 << 20)
 
 
 class EndToEndTest(unittest.TestCase):
@@ -194,6 +270,53 @@ class EndToEndTest(unittest.TestCase):
         catalog = policy.load_catalog()
         self.assertEqual(proposal_ai.build_prompt(catalog),
                          proposal_ai.build_prompt(policy.load_catalog()))
+
+    def test_evidence_hashes_match_the_exact_file_bytes(self):
+        # A multi-line model response: write_text would translate newlines on Windows
+        # and make every registered hash disagree with its file. write_bytes must not.
+        multi_line = "Here is the order:\n%s\nHope that helps." % _valid()
+        code, run_dir = self._run(["--mock-response", multi_line])
+        self.assertEqual(code, app_main.EXIT_OK)
+        ai_dir = run_dir / "ai_proposal"
+        provenance = json.loads((ai_dir / "05_provenance.json").read_text(encoding="utf-8"))
+        import hashlib
+        self.assertEqual(
+            provenance["prompt_sha256"],
+            hashlib.sha256((ai_dir / "01_prompt.txt").read_bytes()).hexdigest())
+        self.assertEqual(
+            provenance["raw_response_sha256"],
+            hashlib.sha256((ai_dir / "02_raw_response.txt").read_bytes()).hexdigest())
+        # The raw response on disk is byte-identical to what the model sent, newlines
+        # included: LF stays LF.
+        raw_text = (ai_dir / "02_raw_response.txt").read_bytes().decode("utf-8")
+        self.assertEqual(raw_text, multi_line)
+        self.assertIn("\n", raw_text)
+
+    def test_invalid_stamp_is_refused_before_any_provider_call(self):
+        # The ordering claim: an unusable run name costs zero model calls. The canary
+        # provider would fail the test the moment it is constructed or called.
+        class Canary:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("provider must not be constructed for a bad stamp")
+
+        with mock.patch.object(proposal_ai, "RemoteProvider", Canary):
+            argv = ["propose-ai", "--provider", "remote",
+                    "--base-url", "https://api.example.com", "--model", "m",
+                    "--business", "shop", "--stamp", "not-a-stamp"]
+            code = app_main.main(argv)
+        self.assertEqual(code, app_main.EXIT_USAGE)
+
+    def test_invalid_business_is_refused_before_any_provider_call(self):
+        class Canary:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("provider must not be constructed for a bad business")
+
+        with mock.patch.object(proposal_ai, "RemoteProvider", Canary):
+            argv = ["propose-ai", "--provider", "remote",
+                    "--base-url", "https://api.example.com", "--model", "m",
+                    "--business", "bad name!", "--stamp", "20261104T000000Z"]
+            code = app_main.main(argv)
+        self.assertEqual(code, app_main.EXIT_USAGE)
 
 
 if __name__ == "__main__":

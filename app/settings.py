@@ -205,6 +205,17 @@ def _inside_runs(directory):
     return candidate
 
 
+def assert_run_name(stamp, business):
+    """Validate a run-name's components without touching the filesystem.
+
+    Callers that are about to do something expensive or side-effectful -- a live model
+    request above all -- must learn that the stamp is unusable *before* spending the
+    call, not after. The two validators are the same ones run_directory applies, so a
+    name accepted here is exactly a name run_directory will accept.
+    """
+    return _stamp(stamp), _label(business, "BUSINESS")
+
+
 def run_directory(stamp, business):
     """Create and return `runs/<stamp>_<business>` exclusively.
 

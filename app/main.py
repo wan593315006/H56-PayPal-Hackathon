@@ -412,6 +412,16 @@ def propose_ai_command(arguments):
 
     stamp = arguments.stamp or settings.utc_stamp()
     business = arguments.business
+    # Order of operations is part of the security posture: the run name is validated
+    # before anything else, so an unusable stamp costs zero model calls. A live provider
+    # must never be reached on behalf of a request that is going to be refused on the
+    # filesystem side anyway.
+    try:
+        settings.assert_run_name(stamp, business)
+    except settings.RunPathError as error:
+        print("AI        REFUSED code=%s" % error.code)
+        print("DETAIL    %s" % error)
+        return EXIT_USAGE
     catalog = policy.load_catalog()
     prompt = proposal_ai.build_prompt(catalog)
     if arguments.provider == "mock":
@@ -427,7 +437,12 @@ def propose_ai_command(arguments):
         print("DETAIL    %s" % error)
         return EXIT_USAGE
 
-    run_directory = settings.run_directory(stamp, business)
+    try:
+        run_directory = settings.run_directory(stamp, business)
+    except settings.RunPathError as error:  # unreachable after assert_run_name; kept
+        print("AI        REFUSED code=%s" % error.code)  # as a belt-and-braces guard
+        print("DETAIL    %s" % error)
+        return EXIT_USAGE
     proposal_ai.save_evidence(run_directory, prompt, raw, proposal, provider.meta())
     print("AI        PROPOSAL provider=%s offer=%s amount=%s order=%s" % (
         provider.name, proposal["offer_id"], proposal["amount_minor"],
