@@ -48,8 +48,9 @@ NETWORK_IMPORTS = frozenset(("base64", "socket", "urllib"))
 NETWORK_MODULES = frozenset(("sandbox.py", "proposal_ai.py"))
 SANDBOX_IMPORTS = ALLOWED_IMPORTS | NETWORK_IMPORTS
 # Only the command layer may reach the network module: a second importer would be a second
-# place where an order can be placed.
+# place where an order can be placed. The same confinement applies to the AI node.
 SANDBOX_CALLERS = frozenset(("main.py",))
+AI_NODE_CALLERS = frozenset(("main.py",))
 
 
 def names_for(tag):
@@ -306,6 +307,13 @@ class ChainTest(unittest.TestCase):
         callers = {path.name for path in sorted((ROOT / "app").glob("*.py"))
                    if path.name not in NETWORK_MODULES and "sandbox" in self._siblings(path)}
         self.assertEqual(callers, set(SANDBOX_CALLERS))
+
+    def test_only_the_command_layer_imports_the_ai_node(self):
+        """`main.py` wires propose-ai; nothing else may reach the model transport."""
+        callers = {path.name for path in sorted((ROOT / "app").glob("*.py"))
+                   if path.name not in NETWORK_MODULES
+                   and "proposal_ai" in self._siblings(path)}
+        self.assertEqual(callers, set(AI_NODE_CALLERS))
 
 
 if __name__ == "__main__":

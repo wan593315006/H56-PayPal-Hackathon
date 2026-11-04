@@ -432,18 +432,19 @@ def propose_ai_command(arguments):
     try:
         raw = provider.complete(prompt)
         proposal = proposal_ai.parse_proposal(raw)
+        # Encodability before the run directory: a response that cannot exist as UTF-8
+        # bytes must not cost a directory, however empty.
+        proposal_ai.check_encodable(raw)
+        run_directory = settings.run_directory(stamp, business)
+        proposal_ai.save_evidence(run_directory, prompt, raw, proposal, provider.meta())
+    except settings.RunPathError as error:
+        print("AI        REFUSED code=%s" % error.code)
+        print("DETAIL    %s" % error)
+        return EXIT_USAGE
     except proposal_ai.ProposalAIError as error:
         print("AI        REFUSED code=%s" % error.code)
         print("DETAIL    %s" % error)
         return EXIT_USAGE
-
-    try:
-        run_directory = settings.run_directory(stamp, business)
-    except settings.RunPathError as error:  # unreachable after assert_run_name; kept
-        print("AI        REFUSED code=%s" % error.code)  # as a belt-and-braces guard
-        print("DETAIL    %s" % error)
-        return EXIT_USAGE
-    proposal_ai.save_evidence(run_directory, prompt, raw, proposal, provider.meta())
     print("AI        PROPOSAL provider=%s offer=%s amount=%s order=%s" % (
         provider.name, proposal["offer_id"], proposal["amount_minor"],
         proposal["order_id"]))

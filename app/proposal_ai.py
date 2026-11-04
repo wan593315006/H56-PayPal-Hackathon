@@ -184,7 +184,21 @@ def _object_pairs(pairs):
     return dict(pairs)
 
 
+# A structural ceiling on the amount, far above every catalogue price: a model cannot
+# make the pipeline carry an arbitrarily huge integer through hashing and serialisation
+# on its way to a refusal that policy would issue anyway.
+AMOUNT_MAX = 10 ** 15
+
+
 def _check_field(key, value):
+    # Surrogates matter: json.loads accepts a lone surrogate escaped as \\ud800, but no
+    # UTF-8 byte encoding of it exists, so the value would explode later -- at evidence
+    # write time, leaving a half-written directory. A proposal that cannot survive
+    # UTF-8 encoding is not a proposal; it is a refusal.
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ProposalAIError("PROPOSAL_AI_FIELD_ENCODING", key) from None
     if any(char in _CONTROL_CHARS for char in value) or value != value.strip():
         raise ProposalAIError("PROPOSAL_AI_FIELD_CHARS", key)
     if len(value) > FIELD_MAX_CHARS:
@@ -199,6 +213,8 @@ def parse_proposal(text):
                               object_pairs_hook=_object_pairs)
     except ProposalAIError:
         raise
+    except RecursionError:
+        raise ProposalAIError("PROPOSAL_AI_JSON_TOO_DEEP") from None
     except ValueError as error:
         raise ProposalAIError("PROPOSAL_AI_MALFORMED_JSON", str(error)[:120]) from None
     if type(document) is not dict:
@@ -220,7 +236,7 @@ def parse_proposal(text):
     amount = document["amount_minor"]
     if type(amount) is not int or type(amount) is bool:
         raise ProposalAIError("PROPOSAL_AI_AMOUNT_TYPE", repr(amount)[:40])
-    if amount <= 0:
+    if amount <= 0 or amount > AMOUNT_MAX:
         raise ProposalAIError("PROPOSAL_AI_AMOUNT_VALUE", amount)
     return document
 
@@ -270,6 +286,11 @@ class RemoteProvider:
 
     def __init__(self, base_url, model, key_env, timeout_seconds=60,
                  max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS):
+        # The model credential lives under its own name. A key_env naming one of the
+        # .env-managed PayPal keys would route a PayPal secret through the model
+        # transport -- a smuggle channel, not a configuration.
+        if key_env in set(settings.ALLOWED_ENV_KEYS):
+            raise ProposalAIError("PROPOSAL_AI_KEY_ENV_RESERVED", key_env)
         self.base_url = (base_url or "").rstrip("/")
         self.model = model
         self.key_env = key_env
@@ -334,11 +355,19 @@ class RemoteProvider:
                 "key_env": self.key_env, "elapsed_ms": self.elapsed_ms}
 
 
-def _write_text_bytes(path, text):
-    """Write UTF-8 bytes with no newline translation. What is hashed is what is on disk."""
-    payload = text.encode("utf-8")
-    path.write_bytes(payload)
-    return payload
+def check_encodable(text):
+    """Named refusal for text that has no UTF-8 form (a lone surrogate, most commonly).
+
+    Callers that create a run directory use this before creating anything, so a bad
+    model response costs zero directories. `save_evidence` re-runs the same check as
+    the last line of defence.
+    """
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ProposalAIError("PROPOSAL_AI_EVIDENCE_ENCODING",
+                              type(error).__name__) from None
+    return text
 
 
 def save_evidence(run_directory, prompt, raw_response, proposal, provider_meta):
@@ -348,10 +377,18 @@ def save_evidence(run_directory, prompt, raw_response, proposal, provider_meta):
     proposal, the validation report, and the provenance record. Provenance carries
     digests computed over the exact bytes written to disk -- a hash that disagrees with
     its file is worse than no hash, so the newline translation `write_text` performs on
-    Windows is deliberately bypassed. Provenance carries digests, not text: the raw
-    model response stays reviewable beside its own hash without anything here deciding
-    which part of it is "safe to quote".
+    Windows is deliberately bypassed. Both texts are encoded before the directory is
+    created: a model response carrying a lone surrogate has no UTF-8 form, and refusing
+    it before anything is written is what keeps a half-written evidence directory from
+    ever existing. Provenance carries digests, not text: the raw model response stays
+    reviewable beside its own hash without anything here deciding which part of it is
+    "safe to quote".
     """
+    try:
+        prompt_bytes = check_encodable(prompt).encode("utf-8")
+        raw_bytes = check_encodable(raw_response).encode("utf-8")
+    except ProposalAIError:
+        raise
     directory = run_directory / "ai_proposal"
     directory.mkdir()
     checks = {
@@ -367,8 +404,8 @@ def save_evidence(run_directory, prompt, raw_response, proposal, provider_meta):
     def _write_json(name, document):
         directory.joinpath(name).write_bytes(hostproof.dumps(document).encode("utf-8"))
 
-    prompt_bytes = _write_text_bytes(directory.joinpath("01_prompt.txt"), prompt)
-    raw_bytes = _write_text_bytes(directory.joinpath("02_raw_response.txt"), raw_response)
+    directory.joinpath("01_prompt.txt").write_bytes(prompt_bytes)
+    directory.joinpath("02_raw_response.txt").write_bytes(raw_bytes)
     _write_json("03_proposal.json", proposal)
     _write_json("04_validation.json", checks)
     provenance = dict(provider_meta)

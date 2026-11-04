@@ -91,6 +91,32 @@ class ParseTest(unittest.TestCase):
             proposal_ai.parse_proposal(_valid({"order_id": "O AI DEMO"}))
         self.assertEqual(caught.exception.code, "PROPOSAL_AI_ORDER_ID_INVALID")
 
+    def test_lone_surrogate_in_a_field_is_refused(self):
+        # json.loads accepts the \ud800 escape; no UTF-8 encoding of it exists, so the
+        # refusal must happen here and not at evidence-write time.
+        text = _valid({"order_id": "O-\ud800-X"})
+        self.assertIn("\\ud800", text)  # the transport shape really carries the escape
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal(text)
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_FIELD_ENCODING")
+
+    def test_deeply_nested_json_is_refused_by_name(self):
+        text = '{"a":' * 20000 + "1" + "}" * 20000
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal(text)
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_JSON_TOO_DEEP")
+
+    def test_unreasonably_huge_amount_is_refused(self):
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.parse_proposal(_valid({"amount_minor": 10 ** 400}))
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_AMOUNT_VALUE")
+
+    def test_check_encodable_refuses_surrogate_prose(self):
+        with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+            proposal_ai.check_encodable("fine prose \ud800 tail")
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_EVIDENCE_ENCODING")
+        self.assertEqual(proposal_ai.check_encodable("fine prose"), "fine prose")
+
     def test_no_object_at_all(self):
         with self.assertRaises(proposal_ai.ProposalAIError) as caught:
             proposal_ai.parse_proposal("I cannot help with that.")
@@ -200,6 +226,101 @@ class RemoteProviderRefusalTest(unittest.TestCase):
 
     def test_response_body_cap_constant_is_bounded(self):
         self.assertLessEqual(proposal_ai.MAX_RESPONSE_BYTES, 4 << 20)
+
+    def test_reserved_key_env_is_refused(self):
+        # The .env-managed PayPal keys must not be routable through the model transport.
+        for reserved in settings.ALLOWED_ENV_KEYS:
+            with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+                proposal_ai.RemoteProvider("https://api.example.com", "m", reserved)
+            self.assertEqual(caught.exception.code, "PROPOSAL_AI_KEY_ENV_RESERVED")
+
+
+class _FakeResponse:
+    def __init__(self, status, payload):
+        self.status = status
+        self._payload = payload
+
+    def read(self, limit=-1):
+        return self._payload if limit < 0 else self._payload[:limit]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class _FakeOpener:
+    def __init__(self, result):
+        self._result = result
+        self.opened = None
+
+    def open(self, request, timeout=None):
+        self.opened = request
+        if isinstance(self._result, Exception):
+            raise self._result
+        return self._result
+
+
+class RemoteFailureFamilyTest(unittest.TestCase):
+    """The live-call refusal family, exercised with zero sockets via a fake opener."""
+
+    KEY_ENV = "H56PAY_TEST_REMOTE_KEY"
+
+    def setUp(self):
+        self._saved = os.environ.get(self.KEY_ENV)
+        os.environ[self.KEY_ENV] = "secret-value"
+        self.provider = proposal_ai.RemoteProvider("https://api.example.com", "m", self.KEY_ENV)
+
+    def tearDown(self):
+        if self._saved is None:
+            os.environ.pop(self.KEY_ENV, None)
+        else:
+            os.environ[self.KEY_ENV] = self._saved
+
+    def _run(self, result):
+        opener = _FakeOpener(result)
+        with mock.patch("urllib.request.build_opener", return_value=opener):
+            outcome = {}
+            try:
+                outcome["content"] = self.provider.complete(proposal_ai.MOCK_RESPONSE_DEFAULT)
+                outcome["error"] = None
+            except proposal_ai.ProposalAIError as error:
+                outcome["error"] = error
+        return opener, outcome
+
+    def test_http_error_reports_status_only_and_never_the_key(self):
+        import urllib.error
+        opener, outcome = self._run(urllib.error.HTTPError(
+            "https://api.example.com/chat/completions", 401, "Unauthorized", {}, None))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_HTTP_STATUS")
+        self.assertIn("401", str(outcome["error"]))
+        self.assertNotIn("secret-value", str(outcome["error"]))
+        self.assertIsNotNone(opener.opened)
+
+    def test_unparseable_body_is_refused(self):
+        _opener, outcome = self._run(_FakeResponse(200, b"this is not json"))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_UNPARSEABLE")
+
+    def test_oversized_body_is_refused(self):
+        _opener, outcome = self._run(_FakeResponse(200, b"x" * (proposal_ai.MAX_RESPONSE_BYTES + 1)))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_TOO_LARGE")
+
+    def test_empty_choice_is_refused(self):
+        body = json.dumps({"choices": [{"message": {"content": "  "}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_EMPTY_CHOICE")
+
+    def test_happy_path_returns_content_and_sends_bearer_once(self):
+        body = json.dumps({"choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertIsNone(outcome["error"])
+        self.assertEqual(outcome["content"], proposal_ai.MOCK_RESPONSE_DEFAULT)
+        self.assertEqual(opener.opened.get_header("Authorization"), "Bearer secret-value")
+
+    def test_redirect_refusal_propagates_through_complete(self):
+        _opener, outcome = self._run(proposal_ai.ProposalAIError("PROPOSAL_AI_REDIRECT_REFUSED", 302))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_REDIRECT_REFUSED")
 
 
 class EndToEndTest(unittest.TestCase):
