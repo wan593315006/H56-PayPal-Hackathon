@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>H56 支付版治理 · 只读证据台</title>
+<title>H56 Payment Governance · Read-Only Evidence Board</title>
 <style>
   :root{
     --bg:#0f1216; --panel:#151a20; --panel2:#1b2129; --line:#2a323c;
     --fg:#d7dde5; --dim:#8b97a6; --faint:#5d6874;
     --ok:#3fb950; --bad:#f85149; --warn:#d29922; --accent:#58a6ff;
     --mono:ui-monospace,"Cascadia Mono","Cascadia Code",Menlo,Consolas,"Courier New",monospace;
-    --sans:"Microsoft YaHei","PingFang SC","Hiragino Sans GB","Source Han Sans SC",system-ui,sans-serif;
+    --sans:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -136,66 +136,66 @@
 <div class="wrap">
 
   <header class="top">
-    <h1>H56 支付版治理 · 只读证据台</h1>
-    <span class="badge-synth">SYNTHETIC_ONLY · 不产生真实支付动作</span>
+    <h1>H56 Payment Governance · Read-Only Evidence Board</h1>
+    <span class="badge-synth">SYNTHETIC_ONLY · initiates no real payment</span>
     <span class="spacer"></span>
-    <span class="status" id="status">未载入</span>
+    <span class="status" id="status">not loaded</span>
   </header>
 
   <div class="gate">
     <label for="token">RUN TOKEN</label>
-    <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴服务进程 stdout 里的 32 位 token">
-    <button id="load">载入</button>
-    <button id="refresh">刷新</button>
-    <button id="forget">清除</button>
-    <span class="status" id="gate-note">token 只存于本标签页 sessionStorage，不写入页面/源码/磁盘</span>
+    <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="paste the 32-hex token from the server process stdout">
+    <button id="load">Load</button>
+    <button id="refresh">Refresh</button>
+    <button id="forget">Forget</button>
+    <span class="status" id="gate-note">token lives only in this tab's sessionStorage — never written to the page, source, or disk</span>
   </div>
 
   <section class="blk">
-    <h2>运行列表 · runs/</h2>
+    <h2>Run list · runs/</h2>
     <div class="panel scroll">
       <table>
         <thead>
           <tr>
-            <th>时间戳</th><th>业务</th><th>判定</th><th>阶段</th>
-            <th>内核调用数</th><th>边界 A/E/B</th><th>绑定</th>
+            <th>Stamp</th><th>Business</th><th>Decision</th><th>Stage</th>
+            <th>Core calls</th><th>Boundary A/E/B</th><th>Binding</th>
           </tr>
         </thead>
         <tbody id="runs-body">
-          <tr><td class="empty" colspan="7">尚未载入。在上方填入 token 后点击「载入」。</td></tr>
+          <tr><td class="empty" colspan="7">Not loaded yet. Paste the token above and click Load.</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="hint">边界三布尔 = authority_granted / execution_permitted / business_action_observed，均为 false 即边界完整（绿色）。</p>
+    <p class="hint">Boundary booleans = authority_granted / execution_permitted / business_action_observed — all false means the boundary held (green).</p>
   </section>
 
   <section class="blk">
-    <h2>单次详情</h2>
+    <h2>Run detail</h2>
     <div class="panel" id="detail">
-      <div class="empty" id="detail-empty">点击运行列表中的任意一行。</div>
+      <div class="empty" id="detail-empty">Click any row in the run list.</div>
     </div>
   </section>
 
   <section class="blk">
-    <h2>记录库 · records/</h2>
+    <h2>Record store · records/</h2>
     <div class="panel scroll">
       <table>
         <thead>
           <tr>
-            <th>session</th><th>assessment_id</th><th>判定</th>
-            <th>artifact 字节</th><th>事件条数</th><th>journal</th>
+            <th>session</th><th>assessment_id</th><th>Decision</th>
+            <th>artifact bytes</th><th>events</th><th>journal</th>
           </tr>
         </thead>
         <tbody id="records-body">
-          <tr><td class="empty" colspan="6">尚未载入。</td></tr>
+          <tr><td class="empty" colspan="6">Not loaded yet.</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="hint">journal 状态为 DAMAGED 表示 events.jsonl 存在不完整行（例如进程中断造成半行），页面照常展示其余记录。</p>
+    <p class="hint">A journal state of DAMAGED means events.jsonl contains an incomplete line (e.g. a half-written line from an interrupted process); the remaining records are shown as usual.</p>
   </section>
 
   <footer>
-    只读视图：本页面不含任何「运行 / 重新评估 / 写入」能力，也不会创建、修改、删除 runs/ 或 records/ 下任何字节。
+    Read-only view: this page has no run / re-assess / write capability, and never creates, modifies, or deletes a single byte under runs/ or records/.
   </footer>
 </div>
 
@@ -229,7 +229,7 @@
   function copyable(value, label){
     if (!value) return el("span", "mono", "—");
     var span = el("span", "hash", label !== undefined ? label : short(value, 16));
-    span.title = "点击复制完整值：" + value;
+    span.title = "Click to copy the full value: " + value;
     span.addEventListener("click", function(ev){
       ev.stopPropagation();
       copyText(String(value), span);
@@ -239,7 +239,7 @@
 
   function copyText(text, anchor){
     var done = function(){
-      var note = el("span", "copy-note", "已复制");
+      var note = el("span", "copy-note", "copied");
       if (anchor && anchor.parentNode){
         anchor.parentNode.insertBefore(note, anchor.nextSibling);
         setTimeout(function(){ if (note.parentNode) note.parentNode.removeChild(note); }, 1200);
@@ -260,7 +260,7 @@
     area.style.top = "-1000px";
     document.body.appendChild(area);
     area.select();
-    try { document.execCommand("copy"); done(); } catch (e) { /* 静默 */ }
+    try { document.execCommand("copy"); done(); } catch (e) { /* silent */ }
     document.body.removeChild(area);
   }
 
@@ -287,14 +287,14 @@
   }
 
   function describeError(err){
-    if (err && err.status === 401) return "401 · token 未通过（检查是否粘贴完整，或服务已重启换了新 token）";
-    if (err && err.status === 403) return "403 · Host 被拒（必须用 http://127.0.0.1:<port>/ 打开，不能用 localhost）";
-    if (err && err.status === 404) return "404 · " + (err.message || "无此资源");
-    if (err && err.status) return String(err.status) + " · " + (err.message || "请求失败");
-    return "请求失败 · " + (err && err.message ? err.message : "网络错误");
+    if (err && err.status === 401) return "401 · token rejected (check it was pasted in full, or the server restarted with a new token)";
+    if (err && err.status === 403) return "403 · Host refused (open via http://127.0.0.1:<port>/ — localhost will not work)";
+    if (err && err.status === 404) return "404 · " + (err.message || "no such resource");
+    if (err && err.status) return String(err.status) + " · " + (err.message || "request failed");
+    return "request failed · " + (err && err.message ? err.message : "network error");
   }
 
-  // ---------------- 运行列表 ----------------
+  // ---------------- run list ----------------
   function decisionTag(value){
     var text = (value === null || value === undefined) ? "—" : String(value);
     var cls = "tag na";
@@ -324,7 +324,7 @@
   }
 
   function bindingTag(ok, present){
-    if (!present) return el("span", "tag na", "无 binding");
+    if (!present) return el("span", "tag na", "no binding");
     if (ok === true) return el("span", "tag ok", "OK");
     if (ok === false) return el("span", "tag bad", "REJECTED");
     return el("span", "tag na", "—");
@@ -335,7 +335,7 @@
     body.innerHTML = "";
     if (!state.runs.length){
       var tr0 = el("tr");
-      var td0 = el("td", "empty", "runs/ 下没有可展示的目录。");
+      var td0 = el("td", "empty", "No displayable directories under runs/.");
       td0.colSpan = 7;
       tr0.appendChild(td0);
       body.appendChild(tr0);
@@ -361,7 +361,7 @@
     });
   }
 
-  // ---------------- 单次详情 ----------------
+  // ---------------- run detail ----------------
   function kvRow(k, vNode){
     var kd = el("div", "k", k);
     var vd = el("div", "v");
@@ -395,7 +395,7 @@
 
     var head = el("div", "sub",
       "run · " + view.stamp + " / " + view.business +
-      "　|　文件：" + (view.files && view.files.length ? view.files.join(", ") : "（无）"));
+      "　|　files: " + (view.files && view.files.length ? view.files.join(", ") : "(none)"));
     host.appendChild(head);
 
     var result = view.result || {};
@@ -408,7 +408,7 @@
       amount = String(order.amount_minor) + " minor　" + str(order.currency);
     }
 
-    var orderBlock = block("订单 order", [
+    var orderBlock = block("order", [
       ["offer_id", str(order.offer_id)],
       ["order_id", str(order.order_id)],
       ["amount_minor", amount],
@@ -426,7 +426,7 @@
       ["policy.decision", str(policy.decision)],
       ["policy_state", str(result.policy_state)],
       ["evidence_state", str(result.evidence_state)],
-      ["reason_codes", uniq.length ? uniq.join("　") : "（空）"]
+      ["reason_codes", uniq.length ? uniq.join("　") : "(empty)"]
     ];
     if (Array.isArray(result.rules)) policyRows.push(["rules", result.rules.join("　")]);
     policyRows.push(["layer", str(result.layer)]);
@@ -435,7 +435,7 @@
     policyRows.push(["business_action_calls", str(result.business_action_calls)]);
     policyRows.push(["authority_granted", str(result.authority_granted)]);
     policyRows.push(["execution_permitted", str(result.execution_permitted)]);
-    var policyBlock = block("策略 policy", policyRows);
+    var policyBlock = block("policy", policyRows);
 
     var refRows = [
       ["assessment_id", copyable(reference.assessment_id)],
@@ -444,25 +444,25 @@
       ["artifact_sha256", copyable(reference.artifact_sha256)],
       ["journal_event_sha256", copyable(reference.journal_event_sha256)]
     ];
-    var refBlock = block("reference 五哈希（截断 16 位，点击复制全值）", refRows);
+    var refBlock = block("reference — five hashes (truncated to 16 chars, click to copy)", refRows);
 
     var check = view.binding_check || {};
     var bindRows;
     if (!check.present){
-      bindRows = [["binding.json", str(check.note || "不存在")]];
+      bindRows = [["binding.json", str(check.note || "absent")]];
     } else {
       bindRows = [
-        ["binding.json", "存在"],
-        ["binding_sha256 自称", copyable(check.binding_sha256_claimed)],
-        ["canonical 复算", copyable(check.binding_sha256_computed)],
-        ["binding 自洽", check.binding_sha256_match ? "MATCH" : "MISMATCH"],
-        ["evidence_sha256 自称", copyable(check.evidence_sha256_claimed)],
-        ["evidence.json 实测", copyable(check.evidence_sha256_file)],
-        ["evidence 字节", check.evidence_sha256_match ? "MATCH" : "MISMATCH"],
-        ["结论", check.ok ? "OK · 字节级自洽" : "REJECTED · 字节级不自洽"]
+        ["binding.json", "present"],
+        ["binding_sha256 claimed", copyable(check.binding_sha256_claimed)],
+        ["canonical recomputed", copyable(check.binding_sha256_computed)],
+        ["binding self-consistent", check.binding_sha256_match ? "MATCH" : "MISMATCH"],
+        ["evidence_sha256 claimed", copyable(check.evidence_sha256_claimed)],
+        ["evidence.json measured", copyable(check.evidence_sha256_file)],
+        ["evidence bytes", check.evidence_sha256_match ? "MATCH" : "MISMATCH"],
+        ["verdict", check.ok ? "OK · byte-level self-consistent" : "REJECTED · byte-level mismatch"]
       ];
     }
-    var bindBlock = block("binding 字节级自洽", bindRows);
+    var bindBlock = block("binding — byte-level self-consistency", bindRows);
 
     var cols = el("div", "cols");
     cols.appendChild(orderBlock);
@@ -477,17 +477,17 @@
 
     if (view.unreadable && view.unreadable.length){
       var warn = el("div", "verify-note");
-      warn.textContent = "不可读文件：" + view.unreadable.map(function(item){
+      warn.textContent = "Unreadable files: " + view.unreadable.map(function(item){
         return item.file + "(" + item.state + ")";
-      }).join("，");
+      }).join(", ");
       host.appendChild(warn);
     }
 
     var note = el("div", "verify-note");
-    note.appendChild(document.createTextNode("本页只做字节级自洽（canonical JSON + sha256 比对）。深度校验（订单/内核语义链重放）请运行 "));
+    note.appendChild(document.createTextNode("This page performs byte-level self-consistency only (canonical JSON + sha256 comparison). For deep verification (order / core semantic-chain replay) run "));
     var cmd = el("code", null, "python -B -m app.main verify --stamp " + view.stamp + " --business " + view.business);
     note.appendChild(cmd);
-    note.appendChild(document.createTextNode("。"));
+    note.appendChild(document.createTextNode("."));
     host.appendChild(note);
   }
 
@@ -501,7 +501,7 @@
   function selectRun(run){
     state.selected = run.stamp + "/" + run.business;
     renderRuns();
-    renderDetailError("读取中…");
+    renderDetailError("reading…");
     api("/api/run?stamp=" + encodeURIComponent(run.stamp) +
         "&business=" + encodeURIComponent(run.business))
       .then(function(view){
@@ -514,12 +514,12 @@
       });
   }
 
-  // ---------------- 记录库 ----------------
+  // ---------------- record store ----------------
   function journalTag(value){
     var text = value || "—";
     var cls = "tag ";
-    // OK 之外一律算异常：TORN 是内核会整个拒绝的形状，OUTSIDE_ROOT 是边界拒绝，
-    // 两者都不能显示成"灰但不报警"。
+    // Anything other than OK is an anomaly: TORN is a shape the core rejects outright,
+    // OUTSIDE_ROOT is a boundary refusal — neither may render as "grey but unalarminged".
     if (text === "OK") cls += "ok";
     else if (text === "MISSING") cls += "na";
     else cls += "bad";
@@ -527,21 +527,22 @@
   }
 
   function recordDecisionCell(rec){
-    // 判定只来自 assessment_id 精确对应的那条 run。找不到就显示"未知"，
-    // 不用同戳的其它业务顶替；产物判定与 run 判定不一致时同时标出来。
+    // The decision comes only from the run matching this exact assessment_id.
+    // If none matches, show UNKNOWN — never borrow a same-stamp run's verdict;
+    // when the artifact decision disagrees with the run decision, flag both.
     var cell = el("td");
     if (!rec.decision){
-      var unknown = el("span", "tag na", "未知");
-      unknown.title = "该评估没有对应的 run 判定（decision_source=" +
-        (rec.decision_source || "NO_MATCH") + "）";
+      var unknown = el("span", "tag na", "UNKNOWN");
+      unknown.title = "This assessment has no matching run decision (decision_source=" +
+        (rec.decision_source || "NO_MATCH") + ")";
       cell.appendChild(unknown);
     } else {
       cell.appendChild(decisionTag(rec.decision));
     }
     if (rec.decision_conflict){
-      var conflict = el("span", "tag bad", "冲突");
-      conflict.title = "产物判定 " + rec.artifact_decision + " 与对应 run 判定 " +
-        rec.decision + " 不一致";
+      var conflict = el("span", "tag bad", "CONFLICT");
+      conflict.title = "Artifact decision " + rec.artifact_decision + " disagrees with the matching run decision " +
+        rec.decision;
       cell.appendChild(document.createTextNode(" "));
       cell.appendChild(conflict);
     }
@@ -553,7 +554,7 @@
     body.innerHTML = "";
     if (!state.records.length){
       var tr0 = el("tr");
-      var td0 = el("td", "empty", "records/ 下没有可展示的 session。");
+      var td0 = el("td", "empty", "No displayable sessions under records/.");
       td0.colSpan = 6;
       tr0.appendChild(td0);
       body.appendChild(tr0);
@@ -576,13 +577,13 @@
     });
   }
 
-  // ---------------- 载入 ----------------
+  // ---------------- load ----------------
   function loadAll(){
     if (!state.token){
-      setStatus("token 为空", "bad");
+      setStatus("token is empty", "bad");
       return;
     }
-    setStatus("载入中…");
+    setStatus("loading…");
     api("/api/runs").then(function(runs){
       state.runs = Array.isArray(runs) ? runs : [];
       renderRuns();
@@ -595,10 +596,10 @@
       state.refused = Array.isArray(refused) ? refused : [];
       var damaged = state.records.filter(function(r){ return r.journal_state !== "OK"; }).length;
       var unknown = state.records.filter(function(r){ return r.decision_source === "NO_MATCH"; }).length;
-      setStatus("已载入 · run " + state.runs.length + " 条 · record " + state.records.length +
-                " 条" + (damaged ? " · journal 异常 " + damaged : "") +
-                (unknown ? " · 判定未知 " + unknown : "") +
-                (state.refused.length ? " · 边界拒绝 " + state.refused.length : ""),
+      setStatus("loaded · " + state.runs.length + " runs · " + state.records.length +
+                " records" + (damaged ? " · journal anomalies " + damaged : "") +
+                (unknown ? " · unknown decisions " + unknown : "") +
+                (state.refused.length ? " · boundary refusals " + state.refused.length : ""),
                 (damaged || state.refused.length) ? "bad" : "ok");
     }).catch(function(err){
       setStatus(describeError(err), "bad");
@@ -612,7 +613,7 @@
     });
   }
 
-  // ---------------- 初始化 ----------------
+  // ---------------- init ----------------
   function boot(){
     var saved = "";
     try { saved = sessionStorage.getItem(TOKEN_KEY) || ""; } catch (e) { saved = ""; }
@@ -634,7 +635,7 @@
       try {
         if (state.token) sessionStorage.setItem(TOKEN_KEY, state.token);
         else sessionStorage.removeItem(TOKEN_KEY);
-      } catch (e) { /* 隐私模式忽略 */ }
+      } catch (e) { /* private mode: ignore */ }
       loadAll();
     });
 
@@ -644,7 +645,7 @@
     });
 
     $("forget").addEventListener("click", function(){
-      try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* 忽略 */ }
+      try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
       $("token").value = "";
       state.token = "";
       state.runs = [];
@@ -652,8 +653,8 @@
       state.selected = null;
       renderRuns();
       renderRecords();
-      renderDetailError("点击运行列表中的任意一行。");
-      setStatus("已清除 token", "");
+      renderDetailError("Click any row in the run list.");
+      setStatus("token cleared", "");
     });
   }
 

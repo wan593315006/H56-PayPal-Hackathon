@@ -171,7 +171,7 @@ def scan_run_dirs():
             continue
         if resolve_within(entry, RUNS_DIR) is None:
             refused.append({"entry": entry.name, "code": "PATH_OUTSIDE_ROOT",
-                            "why": "目录联接或真实路径在 runs/ 之外"})
+                            "why": "directory junction or real path outside runs/"})
             continue
         found.append((stamp, business, entry))
     return found, refused
@@ -215,7 +215,7 @@ def check_binding(run_dir: Path):
             "binding_sha256_match": False,
             "evidence_sha256_match": False,
             "boundary_refused": error.code,
-            "note": "读取被边界检查拒绝：%s" % error.detail,
+            "note": "Read refused by boundary check: %s" % error.detail,
         }
     if binding_path is None or not binding_path.is_file():
         return {
@@ -223,7 +223,7 @@ def check_binding(run_dir: Path):
             "ok": None,
             "binding_sha256_match": None,
             "evidence_sha256_match": None,
-            "note": "该 run 无 binding.json（未进入绑定阶段）",
+            "note": "No binding.json for this run (binding stage not reached)",
         }
 
     binding, err = read_json(binding_path)
@@ -233,7 +233,7 @@ def check_binding(run_dir: Path):
             "ok": False,
             "binding_sha256_match": False,
             "evidence_sha256_match": False,
-            "note": "binding.json 不可解析：%s" % err,
+            "note": "binding.json is not parseable: %s" % err,
         }
 
     claimed = binding.get("binding_sha256")
@@ -245,11 +245,11 @@ def check_binding(run_dir: Path):
     evidence_actual = file_sha256(evidence_path) if evidence_path is not None else None
     if evidence_actual is None:
         evidence_match = False
-        evidence_note = "evidence.json 缺失，无法复核"
+        evidence_note = "evidence.json missing; cannot verify"
     else:
         evidence_match = isinstance(evidence_claimed, str) and evidence_claimed == evidence_actual
-        evidence_note = "evidence_sha256 与 evidence.json 字节一致" if evidence_match \
-            else "evidence_sha256 与 evidence.json 字节不一致"
+        evidence_note = "evidence_sha256 matches evidence.json bytes" if evidence_match \
+            else "evidence_sha256 does not match evidence.json bytes"
 
     ok = bool(binding_match and evidence_match)
     return {
@@ -328,7 +328,7 @@ def api_refused():
                 continue
             if resolve_within(entry, RECORDS_DIR) is None:
                 rows.append({"entry": entry.name, "code": "PATH_OUTSIDE_ROOT",
-                             "why": "目录联接或真实路径在 records/ 之外",
+                             "why": "directory junction or real path outside records/",
                              "root": "records"})
     return rows
 
@@ -543,15 +543,15 @@ def api_records():
 # --------------------------------------------------------------------------
 
 ERROR_TEXT = {
-    "HOST_NOT_ALLOWED": "Host 头必须精确为 127.0.0.1:<port>，不接受 localhost 及其它别名。",
-    "TOKEN_REQUIRED": "缺少或错误的 " + TOKEN_HEADER + " 头。token 在服务进程 stdout 里。",
-    "METHOD_NOT_ALLOWED": "/api/* 只接受 GET 与 POST。",
-    "BODY_NOT_EMPTY": "POST 体必须是空对象 {}。",
-    "BAD_PARAM": "stamp/business 未通过白名单校验。",
-    "RUN_NOT_FOUND": "该 run 目录不存在。",
-    "PATH_OUTSIDE_ROOT": "该路径是目录联接/重解析点，或真实路径在 runs\\ / records\\ 之外，已拒绝读取。",
-    "NOT_FOUND": "无此路由。",
-    "INTERNAL_ERROR": "服务端读取失败，详情见服务进程 stderr。",
+    "HOST_NOT_ALLOWED": "Host header must be exactly 127.0.0.1:<port>; localhost and other aliases are refused.",
+    "TOKEN_REQUIRED": "Missing or wrong " + TOKEN_HEADER + " header. The token is printed to the server process stdout.",
+    "METHOD_NOT_ALLOWED": "/api/* accepts GET and POST only.",
+    "BODY_NOT_EMPTY": "The POST body must be the empty object {}.",
+    "BAD_PARAM": "stamp/business failed the whitelist check.",
+    "RUN_NOT_FOUND": "That run directory does not exist.",
+    "PATH_OUTSIDE_ROOT": "This path is a directory junction/reparse point or resolves outside runs\\ / records\\; read refused.",
+    "NOT_FOUND": "No such route.",
+    "INTERNAL_ERROR": "Server-side read failed; see the server process stderr for details.",
 }
 
 
@@ -748,34 +748,34 @@ class Server(ThreadingHTTPServer):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="H56 支付版治理 · 只读证据台（不触发任何评估）")
+        description="H56 payment governance · read-only evidence board (triggers no assessments)")
     parser.add_argument("--port", type=int, default=8848,
-                        help="监听端口，默认 8848")
+                        help="listen port, default 8848")
     args = parser.parse_args(argv)
 
     if not (0 < args.port < 65536):
-        parser.error("--port 必须在 1..65535 之间")
+        parser.error("--port must be in 1..65535")
 
     token = secrets.token_hex(16)
     try:
         httpd = Server(("127.0.0.1", args.port), Handler, token)
     except OSError as exc:
-        sys.stderr.write("[h56-ui] 端口 %d 不可用：%s\n" % (args.port, exc))
+        sys.stderr.write("[h56-ui] port %d unavailable: %s\n" % (args.port, exc))
         return 2
 
     port = httpd.server_address[1]
     out = sys.stdout
-    out.write("H56 只读证据台已启动\n")
+    out.write("H56 read-only evidence board started\n")
     out.write("  URL   : http://127.0.0.1:%d/\n" % port)
     out.write("  TOKEN : %s\n" % token)
-    out.write("  头名  : %s\n" % TOKEN_HEADER)
-    out.write("  只读  : 不写 runs/ 与 records/，不触发评估；Ctrl+C 结束\n")
+    out.write("  HEADER: %s\n" % TOKEN_HEADER)
+    out.write("  READ-ONLY: never writes runs/ or records/, triggers no assessments; Ctrl+C to stop\n")
     out.flush()
 
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        out.write("\n[h56-ui] 收到中断，退出。\n")
+        out.write("\n[h56-ui] interrupted, exiting.\n")
         out.flush()
     finally:
         httpd.server_close()
