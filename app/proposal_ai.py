@@ -343,6 +343,9 @@ class RemoteProvider:
         try:
             document = json.loads(payload.decode("utf-8"))
             content = document["choices"][0]["message"]["content"]
+        except RecursionError:
+            raise ProposalAIError("PROPOSAL_AI_RESPONSE_UNPARSEABLE",
+                                  "RecursionError") from None
         except (ValueError, KeyError, IndexError, TypeError) as error:
             raise ProposalAIError("PROPOSAL_AI_RESPONSE_UNPARSEABLE",
                                   type(error).__name__) from None

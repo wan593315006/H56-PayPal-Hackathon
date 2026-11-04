@@ -280,13 +280,17 @@ class RemoteFailureFamilyTest(unittest.TestCase):
 
     def _run(self, result):
         opener = _FakeOpener(result)
-        with mock.patch("urllib.request.build_opener", return_value=opener):
+        with mock.patch("urllib.request.build_opener", return_value=opener) as factory:
             outcome = {}
             try:
                 outcome["content"] = self.provider.complete(proposal_ai.MOCK_RESPONSE_DEFAULT)
                 outcome["error"] = None
             except proposal_ai.ProposalAIError as error:
                 outcome["error"] = error
+        # The wiring claim, asserted where the patch already reaches: complete() must
+        # build its opener with the no-redirect handler, not merely define one.
+        factory.assert_called_once()
+        self.assertIs(factory.call_args.args[0], proposal_ai._NoRedirect)
         return opener, outcome
 
     def test_http_error_reports_status_only_and_never_the_key(self):
