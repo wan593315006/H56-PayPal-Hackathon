@@ -441,6 +441,12 @@ def propose_ai_command(arguments):
         # Encodability before the run directory: a response that cannot exist as UTF-8
         # bytes must not cost a directory, however empty.
         proposal_ai.check_encodable(raw)
+        # Echo check on the decoded field values themselves. JSON escaping can hide a
+        # credential from the raw-body check -- a quote in the key travels as \" on the
+        # wire -- while the decoded value, heading for the proposal file, the result,
+        # the binding and the terminal, carries it literally.
+        provider.assert_no_echo("".join(str(proposal[key])
+                                        for key in proposal_ai.PROPOSAL_KEYS))
         run_directory = settings.run_directory(stamp, business)
         proposal_ai.save_evidence(run_directory, prompt, raw, proposal, provider.meta())
     except settings.RunPathError as error:

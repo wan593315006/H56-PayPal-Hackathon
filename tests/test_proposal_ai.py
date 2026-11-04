@@ -237,6 +237,19 @@ class RemoteProviderRefusalTest(unittest.TestCase):
                 proposal_ai.RemoteProvider("https://api.example.com", "m", reserved)
             self.assertEqual(caught.exception.code, "PROPOSAL_AI_KEY_ENV_RESERVED")
 
+    def test_reserved_key_env_is_refused_case_insensitively(self):
+        # F1: Windows normalises variable names on lookup -- `paypal_client_secret`
+        # reads the very variable .env manages as PAYPAL_CLIENT_SECRET. The reserved
+        # rule must compare canonical forms, not spellings.
+        for variant in ("paypal_client_secret", "PayPal_Client_Secret",
+                        "PAYPAL_client_ID", "paypal_ENVIRONMENT"):
+            with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+                proposal_ai.RemoteProvider("https://api.example.com", "m", variant)
+            self.assertEqual(caught.exception.code, "PROPOSAL_AI_KEY_ENV_RESERVED",
+                             variant)
+        self.assertTrue(settings.is_reserved_env_key("PayPal_Client_Secret"))
+        self.assertFalse(settings.is_reserved_env_key("H56PAY_MODEL_KEY"))
+
 
 class _FakeResponse:
     def __init__(self, status, payload):
@@ -412,6 +425,56 @@ class RemoteFailureFamilyTest(unittest.TestCase):
         _opener, outcome = self._run(_FakeResponse(200, body))
         self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
 
+    def test_echo_in_the_answer_body_is_refused(self):
+        # F2: the model's answer is server-chosen text too. A credential echoed back
+        # inside the content used to land in 02_raw_response.txt byte for byte.
+        body = json.dumps({"choices": [{"message": {"content":
+            "your key was secret-value\n" + proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+        self.assertIsNone(self.provider.last_receipt)
+
+    def test_echo_inside_a_nested_usage_key_is_refused(self):
+        # The echo check walks keys as well as values: json.dumps on the whole object
+        # serialises keys too, and the walker collects them explicitly.
+        body = json.dumps({"usage": {"secret-value": 1},
+                           "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RESPONSE_ECHOES_KEY")
+
+    def test_deeply_nested_usage_is_refused_before_evidence(self):
+        # F3: deep nesting fits in a couple of KB -- far under the 1 MiB cap -- and used
+        # to crash provenance encoding after four evidence files were already on disk.
+        # The depth here is chosen well below json.loads' own interpreter- and
+        # stack-dependent limit, so the named refusal comes from the shape contract,
+        # not from wherever the parser happens to blow up on this machine.
+        deep = {"tokens": 1}
+        for _ in range(300):
+            deep = {"n": deep}
+        body = json.dumps({"usage": deep, "id": "ok",
+                           "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        self.assertLess(len(body), 4096)
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RECEIPT_TOO_DEEP")
+        self.assertIsNone(self.provider.last_receipt)
+
+    def test_usage_one_level_past_the_bound_is_refused(self):
+        usage = {"tokens": 1}
+        for _ in range(proposal_ai.RECEIPT_USAGE_MAX_DEPTH + 1):
+            usage = {"n": usage}
+        body = json.dumps({"usage": usage,
+                           "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertEqual(outcome["error"].code, "PROPOSAL_AI_RECEIPT_TOO_DEEP")
+
+    def test_normal_usage_shape_still_passes(self):
+        body = json.dumps({"usage": {"prompt_tokens": 10, "completion_tokens": 7,
+                                     "total_tokens": 17, "detail": {"source": "api"}},
+                           "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertIsNone(outcome["error"])
+        self.assertEqual(self.provider.last_receipt["usage"]["total_tokens"], 17)
+
     def test_redirect_refusal_propagates_through_complete(self):
         _opener, outcome = self._run(proposal_ai.ProposalAIError("PROPOSAL_AI_REDIRECT_REFUSED", 302))
         self.assertEqual(outcome["error"].code, "PROPOSAL_AI_REDIRECT_REFUSED")
@@ -585,6 +648,101 @@ class EndToEndTest(unittest.TestCase):
         self.assertIn("PROPOSAL_AI_KEY_ENV_RESERVED", output)
         # The refusal happened before anything was created on the filesystem.
         self.assertFalse((settings.RUNS_ROOT / "20261104T000000Z_shop").exists())
+
+    def test_lowercase_reserved_key_env_costs_zero_provider_calls(self):
+        # F1 at the CLI layer: the case variant resolves to the same Windows variable.
+        # The refusal lives in the constructor itself, so no canary patch here -- the
+        # real constructor must refuse before any opener is built (zero network).
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            argv = ["propose-ai", "--provider", "remote",
+                    "--base-url", "https://api.example.com", "--model", "m",
+                    "--key-env", "paypal_client_secret",
+                    "--business", "shop", "--stamp", "20261104T000000Z"]
+            code = app_main.main(argv)
+        self.assertEqual(code, app_main.EXIT_USAGE)
+        self.assertIn("PROPOSAL_AI_KEY_ENV_RESERVED", buffer.getvalue())
+        self.assertFalse((settings.RUNS_ROOT / "20261104T000000Z_shop").exists())
+
+    def _fake_remote_cli(self, body, key_env, key_value):
+        """Run propose-ai against a fake opener that returns `body`; capture output."""
+        saved = os.environ.get(key_env)
+        os.environ[key_env] = key_value
+        try:
+            opener = _FakeOpener(_FakeResponse(200, body))
+            with mock.patch("urllib.request.build_opener", return_value=opener):
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer):
+                    argv = ["propose-ai", "--provider", "remote",
+                            "--base-url", "https://api.example.com", "--model", "m",
+                            "--key-env", key_env,
+                            "--business", "shop", "--stamp", "20261104T000000Z"]
+                    code = app_main.main(argv)
+        finally:
+            if saved is None:
+                os.environ.pop(key_env, None)
+            else:
+                os.environ[key_env] = saved
+        return code, buffer.getvalue(), opener
+
+    def test_key_echo_in_the_answer_body_is_refused_at_cli_level(self):
+        # F2, repro 1: credential + newline + valid proposal in the answer body. Used to
+        # exit 0 with the credential saved in 02_raw_response.txt.
+        canary = "canarykey12345"
+        body = json.dumps({"choices": [{"message": {"content":
+            "your key was " + canary + "\n" + proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        code, output, opener = self._fake_remote_cli(
+            body, "H56PAY_TEST_ECHO_KEY", canary)
+        self.assertEqual(code, app_main.EXIT_USAGE)
+        self.assertIn("PROPOSAL_AI_RESPONSE_ECHOES_KEY", output)
+        self.assertNotIn(canary, output)
+        self.assertFalse((settings.RUNS_ROOT / "20261104T000000Z_shop").exists())
+        self.assertIsNotNone(opener.opened)
+
+    def test_escaped_key_echo_in_a_proposal_field_is_refused(self):
+        # F2, repro 2, decoding gap: a credential containing a quote travels escaped on
+        # the wire ("ab\"cd"), so the raw-body containment check passes -- but the
+        # decoded payee heading for the proposal, the result, the binding and the
+        # terminal carries it literally. Used to exit 0 FEASIBLE with the canary saved
+        # into four files and printed on stdout.
+        canary = 'ab"cd12'
+        self.assertNotIn(canary, json.dumps({"payee": canary}))  # escaped on the wire
+        body = json.dumps({"choices": [{"message": {"content":
+            _valid({"payee": canary})}}]}).encode("utf-8")
+        code, output, _opener = self._fake_remote_cli(
+            body, "H56PAY_TEST_ESC_KEY", canary)
+        self.assertEqual(code, app_main.EXIT_USAGE)
+        self.assertIn("PROPOSAL_AI_RESPONSE_ECHOES_KEY", output)
+        self.assertNotIn(canary, output)
+        self.assertFalse((settings.RUNS_ROOT / "20261104T000000Z_shop").exists())
+
+    def test_deeply_nested_usage_refused_at_cli_level_with_no_directory(self):
+        # F3 at the CLI layer: the deep-usage response must refuse by name with zero
+        # evidence files, not crash provenance encoding after 01-04 landed. Depth 300
+        # stays inside json.loads' own limits so the shape contract is what fires.
+        deep = {"tokens": 1}
+        for _ in range(300):
+            deep = {"n": deep}
+        body = json.dumps({"usage": deep,
+                           "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        code, output, _opener = self._fake_remote_cli(
+            body, "H56PAY_TEST_DEEP_KEY", "unused-key-value")
+        self.assertEqual(code, app_main.EXIT_USAGE)
+        self.assertIn("PROPOSAL_AI_RECEIPT_TOO_DEEP", output)
+        self.assertFalse((settings.RUNS_ROOT / "20261104T000000Z_shop").exists())
+
+    def test_evidence_encoding_failure_creates_no_directory(self):
+        # The structural claim behind F3's fix: every evidence byte is serialized and
+        # encoded before the directory is created, so an encoder crash cannot leave a
+        # half-written evidence directory behind.
+        run_dir = Path(self._scratch.name) / "encoding-failure"
+        run_dir.mkdir()
+        with mock.patch.object(proposal_ai.hostproof, "dumps", side_effect=RecursionError):
+            with self.assertRaises(proposal_ai.ProposalAIError) as caught:
+                proposal_ai.save_evidence(run_dir, "prompt", "raw",
+                                          json.loads(proposal_ai.MOCK_RESPONSE_DEFAULT), {})
+        self.assertEqual(caught.exception.code, "PROPOSAL_AI_EVIDENCE_TOO_DEEP")
+        self.assertFalse((run_dir / "ai_proposal").exists())
 
 
 if __name__ == "__main__":

@@ -35,6 +35,17 @@ CREDENTIAL_KEYS = ("PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET")
 ALLOWED_ENV_KEYS = CREDENTIAL_KEYS + ("PAYPAL_ENVIRONMENT",)
 ENV_FILE_MAX_BYTES = 65536
 
+# Windows normalises environment-variable NAMES on lookup: os.environ["paypal_client_secret"]
+# reads the very variable a .env file wrote as PAYPAL_CLIENT_SECRET. A reserved-name rule
+# that compares Python strings exactly would be a padlock on one spelling of the same
+# door -- so the reserved set is stored and compared in its canonical (upper) form.
+RESERVED_ENV_KEYS = frozenset(key.upper() for key in ALLOWED_ENV_KEYS)
+
+
+def is_reserved_env_key(name):
+    """True when `name` would resolve to a reserved credential variable on this platform."""
+    return isinstance(name, str) and name.upper() in RESERVED_ENV_KEYS
+
 # Variables a child interpreter needs in order to start on Windows, and nothing else.
 # Deliberately an allowlist: an inherited environment is how a credential reaches a
 # subprocess that never asked for one.

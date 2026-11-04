@@ -252,6 +252,10 @@ class MockProvider:
     def complete(self, _prompt):
         return self._response
 
+    def assert_no_echo(self, _text):
+        """No credential is ever involved on the mock path; nothing to refuse."""
+        return None
+
     def meta(self):
         return {"provider": self.name, "deterministic": True}
 
@@ -288,8 +292,11 @@ class RemoteProvider:
                  max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS):
         # The model credential lives under its own name. A key_env naming one of the
         # .env-managed PayPal keys would route a PayPal secret through the model
-        # transport -- a smuggle channel, not a configuration.
-        if key_env in set(settings.ALLOWED_ENV_KEYS):
+        # transport -- a smuggle channel, not a configuration. The comparison is on
+        # canonical (upper) forms: Windows resolves environment names case-insensitively,
+        # so `paypal_client_secret` reads the same variable as `PAYPAL_CLIENT_SECRET`,
+        # and a case variant must be refused exactly like the spelling it resolves to.
+        if settings.is_reserved_env_key(key_env):
             raise ProposalAIError("PROPOSAL_AI_KEY_ENV_RESERVED", key_env)
         self.base_url = (base_url or "").rstrip("/")
         self.model = model
@@ -301,6 +308,25 @@ class RemoteProvider:
         # usage, status and a digest of the exact response bytes. `None` until a call
         # succeeds; a failed call refuses by name and leaves nothing half-recorded.
         self.last_receipt = None
+        # The credential of the last completed call, kept for the command layer's
+        # post-parse echo check (assert_no_echo). The value is already resident in the
+        # process environment for the life of the process; this reference adds no
+        # exposure and is never logged, never written, never evidenced.
+        self._last_key = None
+
+    def assert_no_echo(self, text):
+        """Refuse text that carries the credential this provider last used.
+
+        The command layer calls this on the parsed proposal before anything is printed,
+        saved or evaluated: a credential that survives into an order field would ride
+        into result.json, the binding file and the terminal -- through the front door,
+        no redirect required. JSON escaping makes this check necessary in addition to
+        the raw-body check in `complete`: a credential containing a quote travels as
+        `\\"` on the wire, so the raw text never contains it literally while the decoded
+        field value does.
+        """
+        if self._last_key and self._last_key in text:
+            raise ProposalAIError("PROPOSAL_AI_RESPONSE_ECHOES_KEY")
 
     def _request(self, prompt, key):
         """Build the POST request. Exposed for tests: no socket is opened here."""
@@ -323,6 +349,7 @@ class RemoteProvider:
         key = settings.credential(self.key_env)
         if key is None:
             raise ProposalAIError("PROPOSAL_AI_CREDENTIALS_MISSING", self.key_env)
+        self._last_key = key
         request = self._request(prompt, key)
         opener = urllib.request.build_opener(_NoRedirect)
         started = time.monotonic()
@@ -355,6 +382,13 @@ class RemoteProvider:
                                   type(error).__name__) from None
         if type(content) is not str or not content.strip():
             raise ProposalAIError("PROPOSAL_AI_EMPTY_CHOICE")
+        # The answer body is server-chosen text, exactly like the receipt fields: a
+        # credential echoed back inside the content would land in the raw-response
+        # evidence file byte for byte, and -- parsed -- ride into the proposal, the
+        # result and the binding. The threat model for echoes always covered the
+        # server; the answer is the server speaking too.
+        if key in content:
+            raise ProposalAIError("PROPOSAL_AI_RESPONSE_ECHOES_KEY")
         # The receipt is what the server said about the call, kept beside the content
         # it describes: id, model echo and usage are what a bill or an audit asks for,
         # and the digest is taken over the exact bytes that arrived. A field the server
@@ -414,24 +448,63 @@ def _receipt_text(document, key):
     return value
 
 
+RECEIPT_USAGE_MAX_DEPTH = 8
+RECEIPT_USAGE_MAX_NODES = 64
+
+
 def _check_receipt(receipt, key):
-    """The one credential must never re-enter the evidence through a server's echo.
+    """Bound the usage object and keep the one credential out of every receipt string.
 
     A hostile or broken endpoint can copy the Authorization header into any string it
     returns; a receipt that carried the key would breach the module's never-in-evidence
-    invariant through the server's own mouth. The check is containment against the one
-    key this call used -- cheap, exact, and fail-closed.
+    invariant through the server's own mouth. The echo check is containment against the
+    one key this call used -- cheap, exact, and fail-closed.
+
+    `usage` gets an explicit shape contract instead of a hoping-it-encodes shrug: its
+    nesting depth and node count are bounded, every string in it (keys included) is
+    encode-checked, and all of it happens here -- inside `complete`, before any run
+    directory exists. A deeply nested usage once crashed provenance encoding *after*
+    four evidence files were already on disk (a ~2 KB response was enough); the bounds
+    make that state unreachable rather than merely unlikely.
     """
     usage = receipt["usage"]
-    echoed = ""
+    strings = [receipt["response_id"], receipt["returned_model"]]
     if isinstance(usage, dict):
+        count = 0
+
+        def walk(value, depth):
+            nonlocal count
+            count += 1
+            if count > RECEIPT_USAGE_MAX_NODES:
+                raise ProposalAIError("PROPOSAL_AI_RECEIPT_TOO_LARGE", "usage")
+            if depth > RECEIPT_USAGE_MAX_DEPTH:
+                raise ProposalAIError("PROPOSAL_AI_RECEIPT_TOO_DEEP", depth)
+            if isinstance(value, dict):
+                for inner_key, inner in value.items():
+                    strings.append(inner_key)
+                    walk(inner, depth + 1)
+            elif isinstance(value, list):
+                for inner in value:
+                    walk(inner, depth + 1)
+            elif isinstance(value, str):
+                strings.append(value)
+
         try:
-            json.dumps(usage, ensure_ascii=False).encode("utf-8")
-        except UnicodeEncodeError:
-            raise ProposalAIError("PROPOSAL_AI_RECEIPT_ENCODING", "usage") from None
-        echoed = json.dumps(usage, ensure_ascii=True)
-    if key and (key in receipt["response_id"] or key in receipt["returned_model"]
-                or key in echoed):
+            walk(usage, 0)
+        except RecursionError:
+            # A depth the walker itself cannot express is a depth evidence encoding
+            # could not survive either: refuse it by name, before any directory.
+            raise ProposalAIError("PROPOSAL_AI_RECEIPT_TOO_DEEP",
+                                  "beyond-walker") from None
+        for text in strings:
+            if not isinstance(text, str):
+                continue
+            try:
+                text.encode("utf-8")
+            except UnicodeEncodeError:
+                raise ProposalAIError("PROPOSAL_AI_RECEIPT_ENCODING",
+                                      "usage") from None
+    if key and any(key in text for text in strings):
         raise ProposalAIError("PROPOSAL_AI_RESPONSE_ECHOES_KEY")
 
 
@@ -457,20 +530,17 @@ def save_evidence(run_directory, prompt, raw_response, proposal, provider_meta):
     proposal, the validation report, and the provenance record. Provenance carries
     digests computed over the exact bytes written to disk -- a hash that disagrees with
     its file is worse than no hash, so the newline translation `write_text` performs on
-    Windows is deliberately bypassed. Both texts are encoded before the directory is
-    created: a model response carrying a lone surrogate has no UTF-8 form, and refusing
-    it before anything is written is what keeps a half-written evidence directory from
-    ever existing. Provenance carries digests, not text: the raw model response stays
-    reviewable beside its own hash without anything here deciding which part of it is
-    "safe to quote".
+    Windows is deliberately bypassed. Provenance carries digests, not text: the raw
+    model response stays reviewable beside its own hash without anything here deciding
+    which part of it is "safe to quote".
+
+    Every byte is serialized and encoded *before* the directory is created. A response
+    that cannot become evidence -- a lone surrogate, or a structure too deep for the
+    encoder -- is a named refusal that costs zero directories, instead of a crash that
+    leaves files 01-04 on disk without the provenance that hashes them.
     """
-    try:
-        prompt_bytes = check_encodable(prompt).encode("utf-8")
-        raw_bytes = check_encodable(raw_response).encode("utf-8")
-    except ProposalAIError:
-        raise
-    directory = run_directory / "ai_proposal"
-    directory.mkdir()
+    prompt_bytes = check_encodable(prompt).encode("utf-8")
+    raw_bytes = check_encodable(raw_response).encode("utf-8")
     checks = {
         "schema": PROPOSAL_EVIDENCE_SCHEMA,
         "keys_expected": list(PROPOSAL_KEYS),
@@ -480,22 +550,31 @@ def save_evidence(run_directory, prompt, raw_response, proposal, provider_meta):
         "all_fields_typed": all(type(proposal[key]) is str and proposal[key]
                                 for key in ("offer_id", "order_id", "currency", "payee")),
     }
-
-    def _write_json(name, document):
-        directory.joinpath(name).write_bytes(hostproof.dumps(document).encode("utf-8"))
-
-    directory.joinpath("01_prompt.txt").write_bytes(prompt_bytes)
-    directory.joinpath("02_raw_response.txt").write_bytes(raw_bytes)
-    _write_json("03_proposal.json", proposal)
-    _write_json("04_validation.json", checks)
-    provenance = dict(provider_meta)
-    provenance.update({
-        "schema": PROPOSAL_EVIDENCE_SCHEMA,
-        "prompt_sha256": hashlib.sha256(prompt_bytes).hexdigest(),
-        "raw_response_sha256": hashlib.sha256(raw_bytes).hexdigest(),
-        "proposal_sha256": hashlib.sha256(
-            hostproof.dumps(proposal).encode("utf-8")).hexdigest(),
-        "proposal_source": "ai_model",
-    })
-    _write_json("05_provenance.json", provenance)
+    provenance = None
+    try:
+        provenance = dict(provider_meta)
+        provenance.update({
+            "schema": PROPOSAL_EVIDENCE_SCHEMA,
+            "prompt_sha256": hashlib.sha256(prompt_bytes).hexdigest(),
+            "raw_response_sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "proposal_sha256": hashlib.sha256(
+                hostproof.dumps(proposal).encode("utf-8")).hexdigest(),
+            "proposal_source": "ai_model",
+        })
+        files = {
+            "01_prompt.txt": prompt_bytes,
+            "02_raw_response.txt": raw_bytes,
+            "03_proposal.json": hostproof.dumps(proposal).encode("utf-8"),
+            "04_validation.json": hostproof.dumps(checks).encode("utf-8"),
+            "05_provenance.json": hostproof.dumps(provenance).encode("utf-8"),
+        }
+    except RecursionError:
+        # The shape bounds in _check_receipt make this unreachable for provider data;
+        # it stands as the named last line instead of a bare traceback.
+        raise ProposalAIError("PROPOSAL_AI_EVIDENCE_TOO_DEEP",
+                              "evidence encoding") from None
+    directory = run_directory / "ai_proposal"
+    directory.mkdir()
+    for name, payload in files.items():
+        directory.joinpath(name).write_bytes(payload)
     return provenance
