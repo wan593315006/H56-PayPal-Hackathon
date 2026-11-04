@@ -297,6 +297,10 @@ class RemoteProvider:
         self.timeout_seconds = timeout_seconds
         self.max_output_tokens = max_output_tokens
         self.elapsed_ms = None
+        # The server's own account of the last successful call -- id, model echo,
+        # usage, status and a digest of the exact response bytes. `None` until a call
+        # succeeds; a failed call refuses by name and leaves nothing half-recorded.
+        self.last_receipt = None
 
     def _request(self, prompt, key):
         """Build the POST request. Exposed for tests: no socket is opened here."""
@@ -351,11 +355,41 @@ class RemoteProvider:
                                   type(error).__name__) from None
         if type(content) is not str or not content.strip():
             raise ProposalAIError("PROPOSAL_AI_EMPTY_CHOICE")
+        # The receipt is what the server said about the call, kept beside the content
+        # it describes: id, model echo and usage are what a bill or an audit asks for,
+        # and the digest is taken over the exact bytes that arrived. A field the server
+        # omitted is "missing", never fabricated -- a receipt that guesses is worse
+        # than one that admits a gap.
+        self.last_receipt = {
+            "http_status": status,
+            "response_bytes": len(payload),
+            "response_sha256": hashlib.sha256(payload).hexdigest(),
+            "response_id": _receipt_text(document, "id"),
+            "returned_model": _receipt_text(document, "model"),
+            "usage": document.get("usage")
+            if isinstance(document.get("usage"), dict) else "missing",
+        }
         return content
 
     def meta(self):
-        return {"provider": self.name, "model": self.model, "base_url": self.base_url,
-                "key_env": self.key_env, "elapsed_ms": self.elapsed_ms}
+        """Configured facts plus the last call's server receipt, never a key value.
+
+        `configured_model` is what the Human asked for; `returned_model` is what the
+        server claims it ran. They are recorded separately because agreeing is an
+        observation, not an assumption.
+        """
+        receipt = self.last_receipt if self.last_receipt is not None else "missing"
+        returned = self.last_receipt["returned_model"] if self.last_receipt else "missing"
+        return {"provider": self.name, "configured_model": self.model,
+                "returned_model": returned, "base_url": self.base_url,
+                "key_env": self.key_env, "elapsed_ms": self.elapsed_ms,
+                "server_receipt": receipt}
+
+
+def _receipt_text(document, key):
+    """A receipt field that must be a non-empty string, or the literal "missing"."""
+    value = document.get(key)
+    return value if isinstance(value, str) and value else "missing"
 
 
 def check_encodable(text):

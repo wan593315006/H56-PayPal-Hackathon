@@ -418,18 +418,24 @@ def propose_ai_command(arguments):
     # filesystem side anyway.
     try:
         settings.assert_run_name(stamp, business)
+        # The zero-cost principle one step further: a run target that is already taken
+        # is refused here, before the provider even exists -- a live model call spent
+        # to learn a local fact is a request billed for nothing.
+        settings.assert_run_available(stamp, business)
     except settings.RunPathError as error:
         print("AI        REFUSED code=%s" % error.code)
         print("DETAIL    %s" % error)
         return EXIT_USAGE
     catalog = policy.load_catalog()
     prompt = proposal_ai.build_prompt(catalog)
-    if arguments.provider == "mock":
-        provider = proposal_ai.MockProvider(arguments.mock_response)
-    else:
-        provider = proposal_ai.RemoteProvider(arguments.base_url, arguments.model,
-                                              arguments.key_env)
     try:
+        if arguments.provider == "mock":
+            provider = proposal_ai.MockProvider(arguments.mock_response)
+        else:
+            # Construction can refuse too (a reserved key-env name, above all): it
+            # belongs inside the same named-refusal contract as everything after it.
+            provider = proposal_ai.RemoteProvider(arguments.base_url, arguments.model,
+                                                  arguments.key_env)
         raw = provider.complete(prompt)
         proposal = proposal_ai.parse_proposal(raw)
         # Encodability before the run directory: a response that cannot exist as UTF-8

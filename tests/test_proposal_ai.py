@@ -5,6 +5,9 @@ fire before any socket call. The offline network guard installed by run_offline_
 is the backstop: if any code path here opened a socket, the whole suite would fail, not
 just one case.
 """
+import contextlib
+import hashlib
+import io
 import json
 import os
 import tempfile
@@ -322,6 +325,55 @@ class RemoteFailureFamilyTest(unittest.TestCase):
         self.assertEqual(outcome["content"], proposal_ai.MOCK_RESPONSE_DEFAULT)
         self.assertEqual(opener.opened.get_header("Authorization"), "Bearer secret-value")
 
+    def test_happy_path_records_the_server_receipt(self):
+        # R2: what the server said about the call -- id, model echo, usage, status and
+        # a digest of the exact bytes -- must survive the call, not just the content.
+        body = json.dumps({
+            "id": "AUDIT_RESPONSE_ID", "model": "AUDIT_RETURNED_MODEL",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 7, "total_tokens": 17},
+            "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}],
+        }).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertIsNone(outcome["error"])
+        receipt = self.provider.last_receipt
+        self.assertEqual(receipt["response_id"], "AUDIT_RESPONSE_ID")
+        self.assertEqual(receipt["returned_model"], "AUDIT_RETURNED_MODEL")
+        self.assertEqual(receipt["usage"],
+                         {"prompt_tokens": 10, "completion_tokens": 7, "total_tokens": 17})
+        self.assertEqual(receipt["http_status"], 200)
+        self.assertEqual(receipt["response_bytes"], len(body))
+        self.assertEqual(receipt["response_sha256"], hashlib.sha256(body).hexdigest())
+        # meta separates what was configured from what came back; the receipt rides
+        # along into provenance. Still no key value anywhere.
+        meta = self.provider.meta()
+        self.assertEqual(meta["configured_model"], "m")
+        self.assertEqual(meta["returned_model"], "AUDIT_RETURNED_MODEL")
+        self.assertEqual(meta["server_receipt"], receipt)
+        self.assertNotIn("secret-value", json.dumps(meta))
+
+    def test_receipt_fields_the_server_omits_are_marked_missing(self):
+        body = json.dumps({"choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, body))
+        self.assertIsNone(outcome["error"])
+        receipt = self.provider.last_receipt
+        self.assertEqual(receipt["response_id"], "missing")
+        self.assertEqual(receipt["returned_model"], "missing")
+        self.assertEqual(receipt["usage"], "missing")
+        # A receipt of the wrong shape is a gap, not a value: a non-string id or a
+        # non-dict usage is refused into "missing" rather than trusted.
+        odd = json.dumps({"id": 7, "model": ["x"], "usage": "17 tokens",
+                          "choices": [{"message": {"content": proposal_ai.MOCK_RESPONSE_DEFAULT}}]}).encode("utf-8")
+        _opener, outcome = self._run(_FakeResponse(200, odd))
+        self.assertIsNone(outcome["error"])
+        receipt = self.provider.last_receipt
+        self.assertEqual(receipt["response_id"], "missing")
+        self.assertEqual(receipt["returned_model"], "missing")
+        self.assertEqual(receipt["usage"], "missing")
+
+    def test_meta_before_any_call_admits_the_receipt_is_missing(self):
+        provider = proposal_ai.RemoteProvider("https://api.example.com", "m", self.KEY_ENV)
+        self.assertEqual(provider.meta()["server_receipt"], "missing")
+
     def test_redirect_refusal_propagates_through_complete(self):
         _opener, outcome = self._run(proposal_ai.ProposalAIError("PROPOSAL_AI_REDIRECT_REFUSED", 302))
         self.assertEqual(outcome["error"].code, "PROPOSAL_AI_REDIRECT_REFUSED")
@@ -442,6 +494,59 @@ class EndToEndTest(unittest.TestCase):
                     "--business", "bad name!", "--stamp", "20261104T000000Z"]
             code = app_main.main(argv)
         self.assertEqual(code, app_main.EXIT_USAGE)
+
+    def test_existing_run_directory_costs_zero_provider_calls(self):
+        # R1: a legal but already-taken run target must be refused before the model is
+        # asked for anything -- a live call spent to learn a local fact is a billed
+        # request for nothing. The pre-existing directory is neither deleted nor reused.
+        settings.run_directory("20261104T000000Z", "shop")
+        taken_before = sorted(p.name for p in settings.RUNS_ROOT.iterdir())
+        calls = []
+        real = proposal_ai.MockProvider
+
+        class Counting(real):
+            def __init__(self, response=None):
+                calls.append("constructed")
+                super().__init__(response)
+
+            def complete(self, prompt):
+                calls.append("called")
+                return super().complete(prompt)
+
+        with mock.patch.object(proposal_ai, "MockProvider", Counting):
+            code, run_dir = self._run([])
+        self.assertEqual(code, app_main.EXIT_USAGE)
+        self.assertEqual(calls, [])
+        # The directory that blocked the run is exactly as it was: untouched, unextended.
+        self.assertEqual(sorted(p.name for p in settings.RUNS_ROOT.iterdir()), taken_before)
+        self.assertFalse((run_dir / "ai_proposal").exists())
+
+    def test_existing_run_directory_refusal_is_named_at_cli_level(self):
+        settings.run_directory("20261104T000000Z", "shop")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code, _run_dir = self._run([])
+        self.assertEqual(code, app_main.EXIT_USAGE)
+        output = buffer.getvalue()
+        self.assertIn("AI        REFUSED", output)
+        self.assertIn("RUN_DIRECTORY_ALREADY_EXISTS", output)
+
+    def test_reserved_key_env_is_a_named_cli_refusal(self):
+        # R3: the class-level refusal (assertRaises in RemoteProviderRefusalTest) is not
+        # the contract; the CLI must answer with the same named refusal, not a traceback.
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            argv = ["propose-ai", "--provider", "remote",
+                    "--base-url", "https://api.example.com", "--model", "m",
+                    "--key-env", "PAYPAL_CLIENT_SECRET",
+                    "--business", "shop", "--stamp", "20261104T000000Z"]
+            code = app_main.main(argv)
+        self.assertEqual(code, app_main.EXIT_USAGE)
+        output = buffer.getvalue()
+        self.assertIn("AI        REFUSED", output)
+        self.assertIn("PROPOSAL_AI_KEY_ENV_RESERVED", output)
+        # The refusal happened before anything was created on the filesystem.
+        self.assertFalse((settings.RUNS_ROOT / "20261104T000000Z_shop").exists())
 
 
 if __name__ == "__main__":

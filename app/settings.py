@@ -216,6 +216,23 @@ def assert_run_name(stamp, business):
     return _stamp(stamp), _label(business, "BUSINESS")
 
 
+def assert_run_available(stamp, business):
+    """Refuse a run target that is already taken -- before anything expensive runs.
+
+    `assert_run_name` proves the name is well-formed; this adds the filesystem half of
+    the same question. A live model call spent to discover that the target directory
+    exists is a request billed for nothing, so `propose-ai` asks this before its
+    provider is constructed. Nothing is created here and nothing is deleted: the
+    exclusive creation itself stays in `run_directory`, which re-checks after `mkdir`
+    -- the check here and that mkdir are two looks at the filesystem, and both must
+    agree for a run to start.
+    """
+    name = "%s_%s" % (_stamp(stamp), _label(business, "BUSINESS"))
+    directory = _inside_runs(RUNS_ROOT / name)
+    if directory.exists():
+        raise RunPathError("RUN_DIRECTORY_ALREADY_EXISTS", name)
+
+
 def run_directory(stamp, business):
     """Create and return `runs/<stamp>_<business>` exclusively.
 
