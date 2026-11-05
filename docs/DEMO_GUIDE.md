@@ -228,3 +228,54 @@ records. Its binding indicator checks saved-byte consistency; `verify` adds the 
 request, evidence and native-record comparison. See
 [Scope and evidence](../README.md#scope-and-evidence) for the demonstration's input
 grade and recorded-session coverage.
+
+## 10. Continue the same AI order to Sandbox
+
+After section 7, use its `$remoteStamp` and saved proposal to create the payment
+operation. Review the model's selected amount before continuing. Begin creation while
+the assessment is fresh (300 seconds); section 8 explains the 900-second proposal
+window and order resumption.
+
+```powershell
+if ($remoteStamp -notmatch '^[0-9]{8}T[0-9]{6}Z$') { throw 'Use the stamp from the successful model run' }
+$proposalPath = Join-Path (Join-Path 'runs' ($remoteStamp + '_shop')) 'ai_proposal/03_proposal.json'
+$proposal = Get-Content -Raw -LiteralPath $proposalPath | ConvertFrom-Json
+$proposal | Format-List offer_id, order_id, amount_minor, currency, payee
+```
+
+The following block uses that evaluated run for creation. After personal browser
+approval, the fresh assessment takes all five business fields from the original
+model proposal and continues the original operation through `--intent-stamp`.
+
+```powershell
+$operationStamp = $remoteStamp
+$seller = Read-Host 'Your Sandbox business account email'
+try {
+    Set-H56ProcessSecret 'PAYPAL_CLIENT_ID' 'PayPal Sandbox client ID'
+    Set-H56ProcessSecret 'PAYPAL_CLIENT_SECRET' 'PayPal Sandbox client secret'
+    $env:PAYPAL_ENVIRONMENT = 'sandbox'
+    & $PY -B -m app.main verify --stamp $operationStamp --business shop
+    if ($LASTEXITCODE -ne 0) { throw 'Original AI binding did not verify' }
+    & $PY -B -m app.main sandbox --step create --offer-id $proposal.offer_id --stamp $operationStamp --payee-email $seller
+    if ($LASTEXITCODE -ne 0) { throw 'Creation stopped; inspect the saved operation before another action' }
+    $paypalOrderId = Read-Host 'Paste SANDBOX_ORDER_ID from the output'
+    Read-Host 'Open SANDBOX_APPROVE_URL, check the merchant and amount, approve as the personal buyer, then press Enter'
+
+    $freshStamp = New-H56Stamp
+    & $PY -B -m app.main evaluate --offer-id $proposal.offer_id --order-id $proposal.order_id --amount-minor $proposal.amount_minor --currency $proposal.currency --payee $proposal.payee --stamp $freshStamp --host-key hostAI01
+    if ($LASTEXITCODE -ne 0) { throw 'Fresh assessment stopped' }
+    & $PY -B -m app.main verify --stamp $freshStamp --business shop
+    if ($LASTEXITCODE -ne 0) { throw 'Fresh binding did not verify' }
+    & $PY -B -m app.main sandbox --step status --offer-id $proposal.offer_id --order-id $paypalOrderId --stamp $freshStamp --intent-stamp $operationStamp
+    if ($LASTEXITCODE -ne 0) { throw 'Status query stopped' }
+    if ((Read-Host 'Only if the status is APPROVED, type CAPTURE to request Sandbox Capture') -cne 'CAPTURE') { throw 'Capture was not requested' }
+    & $PY -B -m app.main sandbox --step capture --offer-id $proposal.offer_id --order-id $paypalOrderId --stamp $freshStamp --intent-stamp $operationStamp
+    if ($LASTEXITCODE -ne 0) { throw 'Capture is not reported settled; inspect the saved order' }
+}
+finally {
+    Remove-Item Env:PAYPAL_CLIENT_ID, Env:PAYPAL_CLIENT_SECRET, Env:PAYPAL_ENVIRONMENT -ErrorAction SilentlyContinue
+}
+```
+
+The [November 5 evidence summary](evidence/ai_sandbox_20261105/README.md) records this
+same-order path for a real model-generated USD 1.00 Sandbox operation.

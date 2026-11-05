@@ -1,0 +1,87 @@
+{
+  "schema": "H56_SAME_ORDER_EVIDENCE_SUMMARY_V1",
+  "source_commit": "78d7bf34060eb4dddbbc1c0ffaaf706456b0b685",
+  "recorded_on": "2026-11-05",
+  "host_evidence_grade": "SYNTHETIC_ONLY",
+  "ai": {
+    "provider": "remote",
+    "configured_model": "deepseek-flash",
+    "returned_model": "deepseek-flash",
+    "response_id": "d95759bf-d730-447b-86b4-840941198f8c",
+    "http_status": 200,
+    "usage": {
+      "completion_tokens": 149,
+      "completion_tokens_details": {
+        "reasoning_tokens": 107
+      },
+      "prompt_cache_hit_tokens": 256,
+      "prompt_cache_miss_tokens": 255,
+      "prompt_tokens": 511,
+      "prompt_tokens_details": {
+        "cached_tokens": 256
+      },
+      "total_tokens": 660
+    },
+    "proposal": {
+      "amount_minor": 100,
+      "currency": "USD",
+      "offer_id": "S-C01",
+      "order_id": "ord_001",
+      "payee": "PAYPAL-MERCHANT-SANDBOX-001"
+    },
+    "proposal_sha256": "87d7ca51523e56930117e4cf50e4f7b53560e5dcfad2bbcc44d669766a5b0c67"
+  },
+  "operation": {
+    "original_ai_stamp": "20261105T003618Z",
+    "fresh_assessment_stamp": "20261105T004000Z",
+    "original_assessment_id": "ASSESS:72fea09170b4e27413c5bc200782719c436e301ba386c0c8625f9c88a5a390b8",
+    "capture_assessment_id": "ASSESS:9d1480acd9e24f2aaf22f4bd4420ec69fcfc5a8f6f7f218928f755e2f379a3af",
+    "order_sha256": "73146e6b55664bfbf10fa6f7b5ded079031c4743e64820a48447c53b4f85db98",
+    "order_token": "73146e6b5566",
+    "native_calls_per_assessment": 22,
+    "paypal_order_id": "70036851290340843",
+    "capture_id": "73T923857C447831T",
+    "currency": "USD",
+    "value": "1.00",
+    "server_approval_status": "APPROVED",
+    "capture_status": "COMPLETED",
+    "settled": true,
+    "merchant_reference_matched": true,
+    "reassessed": true,
+    "buyer_approval": "User confirmed browser approval; PayPal returned APPROVED."
+  },
+  "verification": {
+    "passed": 27,
+    "total": 27,
+    "checks": {
+      "model_source_remote": true,
+      "model_http_200": true,
+      "model_receipt_present": true,
+      "prompt_hash": true,
+      "answer_hash": true,
+      "proposal_hash": true,
+      "original_evaluation_uses_exact_ai_fields": true,
+      "fresh_evaluation_uses_exact_ai_fields": true,
+      "business_order_digest_unchanged": true,
+      "both_assessments_feasible_22": true,
+      "different_actual_assessments": true,
+      "intent_is_original_ai_assessment": true,
+      "creation_is_original_ai_assessment": true,
+      "one_paypal_order_across_all_stages": true,
+      "buyer_approval_server_observed": true,
+      "creation_request_matches_saved_intent": true,
+      "merchant_reference_matched": true,
+      "capture_retains_original_assessment": true,
+      "capture_uses_fresh_assessment": true,
+      "capture_completed_settled": true,
+      "same_usd_1_amount": true,
+      "capture_identity": true,
+      "single_model_create_capture_cli_call": true,
+      "sandbox_endpoint": true,
+      "synthetic_grade_retained": true,
+      "original_runtime_bytes_preserved": true,
+      "archived_native_verify:20261105T004000Z": true
+    }
+  },
+  "distribution": "Derived public summary; complete unchanged run/native records are preserved in the separate archive. No credentials or approval URLs are included here."
+}

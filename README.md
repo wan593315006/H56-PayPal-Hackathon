@@ -43,6 +43,7 @@ flowchart LR
 
 | Exercise | Recorded outcome | Date |
 | --- | --- | --- |
+| Same-order AI → PayPal Sandbox | DeepSeek proposal → payment policy `ALLOW` → H56 `FEASIBLE` → buyer approval → USD 1.00 Capture `COMPLETED`. [Linked evidence summary](docs/evidence/ai_sandbox_20261105/README.md). | Nov 5, 2026 |
 | Real DeepSeek proposal | `deepseek-flash` drafted `S-C01 / 100 / USD`; payment policy `ALLOW`, H56 `FEASIBLE`, 22 native calls and successful binding verification. The receipt records 511 input + 84 output tokens. | Nov 4, 2026 |
 | Real PayPal Sandbox operation | USD 1.00 Capture `COMPLETED` after browser approval and server-side order verification, with three saved host assessments. | Nov 3, 2026 |
 
@@ -125,9 +126,9 @@ controls.
 | Area | Current scope |
 | --- | --- |
 | Host evidence | The demonstration uses the fixed `SYNTHETIC_ONLY` contract. The native cores evaluate supplied host facts; this build uses synthetic inputs rather than a live host-attestation collector. |
-| Recorded service sessions | The November 4 DeepSeek record covers model proposal through assessment and binding. The November 3 Sandbox record covers a catalogue order through buyer approval and Capture. These are two recorded sessions; a same-session live-model-to-Capture run is outside the published evidence set. |
+| Recorded service sessions | The November 5 result follows one model-generated order through assessment, buyer approval and Sandbox Capture, including a fresh host assessment before Capture. The November 3 and 4 records remain separate earlier examples. |
 | Qualification and approval | `FEASIBLE` describes host eligibility. Payment policy validates business terms, and PayPal supplies the independently checked buyer-approval state. |
-| Video and screenshots | The video combines CLI recordings with labelled historical evidence views. The screenshots above reproduce saved receipts from those views. |
+| Video and screenshots | The video combines CLI recordings with labelled November 3–4 evidence views. The screenshots above reproduce those saved receipts. The newer same-order run is documented in the linked November 5 evidence summary. |
 | Console and commands | The console is a read-only record viewer. CLI commands create assessments and perform the explicitly selected Sandbox steps. |
 | Payment environment | The executor uses PayPal Sandbox and simulated funds. |
 
@@ -163,6 +164,10 @@ The included core contains **139 computation members plus their source declarati
 cases and exercises cold imports. The complete application baseline `ecbad1c` passes
 **263 offline tests** through `run_offline_tests.py`, with zero attempted Python network
 calls in the guarded process.
+
+Fresh Python 3.9.13 and 3.13.12 environments each pass the same 263 tests and selfcheck
+6/6 with no third-party runtime packages installed. The unused Requests declaration
+was removed in `78d7bf3`; both service clients use the standard library.
 
 The video retains CLI footage from `86e20a4` with its 186-test result. Its later AI
 evidence segment uses `ecbad1c`; the historical Sandbox session used `be15d4a`. The

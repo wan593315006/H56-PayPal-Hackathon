@@ -1,0 +1,97 @@
+{
+  "source_commit": "78d7bf34060eb4dddbbc1c0ffaaf706456b0b685",
+  "files": {
+    "records/oq_shop_20261105T003618Z/artifacts/72fea09170b4e27413c5bc200782719c436e301ba386c0c8625f9c88a5a390b8.json": {
+      "sha256": "69c7c481380cef0334d63b282921c23499e5ce851c3fc7bd38ca2e2eb3534226",
+      "bytes": 27165
+    },
+    "records/oq_shop_20261105T003618Z/claims/928f776a3a8d752f1fb6431363e20cdf72ca0c778a16f3a6aa02f715fb3f98e5.json": {
+      "sha256": "903767e42f9c66d019cd64a58258bd58cdc49285878f4ef5815d41c180a27082",
+      "bytes": 295
+    },
+    "records/oq_shop_20261105T003618Z/events.jsonl": {
+      "sha256": "317786eecee2c0086028943fcae42b2ec2e64174b63bf079b5c11c9cfac7fba3",
+      "bytes": 735
+    },
+    "records/oq_shop_20261105T004000Z/artifacts/9d1480acd9e24f2aaf22f4bd4420ec69fcfc5a8f6f7f218928f755e2f379a3af.json": {
+      "sha256": "af56dbddd00fc292ebd5c6e0a3d48e57f2fd66d01d043b33475bc0e6ebd0ed71",
+      "bytes": 27165
+    },
+    "records/oq_shop_20261105T004000Z/claims/7d2faa85a8542d2055cb0bf2c5eeb7e185f41dc2fd779060c39a9d923b248beb.json": {
+      "sha256": "ebfc6f25299f630c5effb507ef4754f726487a33976e40fa9902bc1ec656deb4",
+      "bytes": 295
+    },
+    "records/oq_shop_20261105T004000Z/events.jsonl": {
+      "sha256": "289d56d114b74d7ce7d01dda62e1b1e75c1a0f285a790b84124d2bf2483189c1",
+      "bytes": 735
+    },
+    "runs/20261105T003618Z_shop/ai_proposal/01_prompt.txt": {
+      "sha256": "ef2113eebf4a907841595aa0cb5cb82be2e6427b47ab79c83f0ad26197deb619",
+      "bytes": 1711
+    },
+    "runs/20261105T003618Z_shop/ai_proposal/02_raw_response.txt": {
+      "sha256": "4daba6cc9a09fdb25994c3e53270fd9a5bc59dc324f18151ecad98185d3ceb9c",
+      "bytes": 115
+    },
+    "runs/20261105T003618Z_shop/ai_proposal/03_proposal.json": {
+      "sha256": "87d7ca51523e56930117e4cf50e4f7b53560e5dcfad2bbcc44d669766a5b0c67",
+      "bytes": 115
+    },
+    "runs/20261105T003618Z_shop/ai_proposal/04_validation.json": {
+      "sha256": "593f004a6629c1070e15d64a8d78c64d76da76a32b2f2dbef8be9e7d366ca432",
+      "bytes": 254
+    },
+    "runs/20261105T003618Z_shop/ai_proposal/05_provenance.json": {
+      "sha256": "15b6bd2f9c1a03279f1443873a61fda071832a9f764e3497d17d22a9d70d969f",
+      "bytes": 965
+    },
+    "runs/20261105T003618Z_shop/binding.json": {
+      "sha256": "df1676b7cab97d2f02bc5cd40ec40b65d6fb3ce037308d0efd52422199f6de7a",
+      "bytes": 1451
+    },
+    "runs/20261105T003618Z_shop/evidence.json": {
+      "sha256": "e9f73214db648059a7da639e45f543b57a128e3c1fd06f6a2baac251e42a0ed0",
+      "bytes": 1738
+    },
+    "runs/20261105T003618Z_shop/paypal/00_intent.json": {
+      "sha256": "a7b7ce130fc8e461339777dc02e05a90d35a5974b978314318fc1c880c876d0a",
+      "bytes": 916
+    },
+    "runs/20261105T003618Z_shop/paypal/01_create_order.json": {
+      "sha256": "d301ee05948e14f27eb66322b15a426a298b3b61be8fff586984b97417ab51e4",
+      "bytes": 2904
+    },
+    "runs/20261105T003618Z_shop/paypal/02_order_state.json": {
+      "sha256": "10a2ad1fe0ea0a30d1331887fc19c0079810ddfcbff6e8af72e3e876ef7cd977",
+      "bytes": 495
+    },
+    "runs/20261105T003618Z_shop/paypal/03_capture.json": {
+      "sha256": "d03943c2a517b9ffed86ab5955dd2d3d16288f2321663c20ffd337d1b31b1310",
+      "bytes": 908
+    },
+    "runs/20261105T003618Z_shop/request.json": {
+      "sha256": "72fea09170b4e27413c5bc200782719c436e301ba386c0c8625f9c88a5a390b8",
+      "bytes": 765
+    },
+    "runs/20261105T003618Z_shop/result.json": {
+      "sha256": "7096e5032d64d88c8b61888a4dc17323ee659f3450768997fa327050e7432f90",
+      "bytes": 1416
+    },
+    "runs/20261105T004000Z_shop/binding.json": {
+      "sha256": "668e6ed004cddbd3906d4f663d6f94a733e337ef3b07fa45233c6ff95a18143b",
+      "bytes": 1451
+    },
+    "runs/20261105T004000Z_shop/evidence.json": {
+      "sha256": "0c2fd90fd9320389dad42c0aaf3de2479158aa2a4f1ddfa77dabf344d7f20ac8",
+      "bytes": 1738
+    },
+    "runs/20261105T004000Z_shop/request.json": {
+      "sha256": "9d1480acd9e24f2aaf22f4bd4420ec69fcfc5a8f6f7f218928f755e2f379a3af",
+      "bytes": 765
+    },
+    "runs/20261105T004000Z_shop/result.json": {
+      "sha256": "6a04c3865101c7da38ac32c7ce8d91d4e0b1075de0a04ec0965101bcc2a529f9",
+      "bytes": 1416
+    }
+  }
+}
