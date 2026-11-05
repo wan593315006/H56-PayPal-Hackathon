@@ -2,7 +2,7 @@
 
 **Deterministic governance for AI payment workflows.**
 
-[Watch the 2:55 demo](https://youtu.be/KAn8YssR1hg) ·
+[Watch the 2:55 same-order demo](https://youtu.be/-ykHSPhwSmA) ·
 [Run the examples](docs/DEMO_GUIDE.md) · [Installation guide](docs/RECOVERY_GUIDE.md)
 
 H56 PayPal gives developers a controlled workflow for AI-assisted purchases. A model
@@ -47,9 +47,9 @@ flowchart LR
 | Real DeepSeek proposal | `deepseek-flash` drafted `S-C01 / 100 / USD`; payment policy `ALLOW`, H56 `FEASIBLE`, 22 native calls and successful binding verification. The receipt records 511 input + 84 output tokens. | Nov 4, 2026 |
 | Real PayPal Sandbox operation | USD 1.00 Capture `COMPLETED` after browser approval and server-side order verification, with three saved host assessments. | Nov 3, 2026 |
 
-The [demo video](https://youtu.be/KAn8YssR1hg) presents these records alongside working
-CLI examples and refusal cases. Their session coverage and input grade are described
-in [Scope and evidence](#scope-and-evidence).
+The [demo video](https://youtu.be/-ykHSPhwSmA) follows the November 5 same-order result
+alongside working CLI examples and refusal cases. Its session coverage and input grade
+are described in [Scope and evidence](#scope-and-evidence).
 
 ## Run your first assessment
 
@@ -113,11 +113,11 @@ Open `http://127.0.0.1:8848/`, enter the server's printed token and load the run
 records view. See the [UI guide](ui/README.md) for the available views and local access
 controls.
 
-*Video still: archived DeepSeek service receipt, November 4, 2026.*
+*Earlier DeepSeek service receipt, November 4, 2026; retained as a historical reference.*
 
 ![Recorded AI proposal and service evidence](docs/images/ai-evidence-replay.png)
 
-*Video still: archived PayPal Sandbox receipt, November 3, 2026.*
+*Earlier PayPal Sandbox receipt, November 3, 2026; retained as a historical reference.*
 
 ![Recorded PayPal Sandbox receipt](docs/images/sandbox-evidence-replay.png)
 
@@ -128,7 +128,7 @@ controls.
 | Host evidence | The demonstration uses the fixed `SYNTHETIC_ONLY` contract. The native cores evaluate supplied host facts; this build uses synthetic inputs rather than a live host-attestation collector. |
 | Recorded service sessions | The November 5 result follows one model-generated order through assessment, buyer approval and Sandbox Capture, including a fresh host assessment before Capture. The November 3 and 4 records remain separate earlier examples. |
 | Qualification and approval | `FEASIBLE` describes host eligibility. Payment policy validates business terms, and PayPal supplies the independently checked buyer-approval state. |
-| Video and screenshots | The video combines CLI recordings with labelled November 3–4 evidence views. The screenshots above reproduce those saved receipts. The newer same-order run is documented in the linked November 5 evidence summary. |
+| Video and screenshots | The current video combines recorded CLI, refusal and test footage with labelled November 5 same-order saved-run views. The two screenshots above are earlier November 3–4 receipts retained as historical references. |
 | Console and commands | The console is a read-only record viewer. CLI commands create assessments and perform the explicitly selected Sandbox steps. |
 | Payment environment | The executor uses PayPal Sandbox and simulated funds. |
 
@@ -169,9 +169,10 @@ Fresh Python 3.9.13 and 3.13.12 environments each pass the same 263 tests and se
 6/6 with no third-party runtime packages installed. The unused Requests declaration
 was removed in `78d7bf3`; both service clients use the standard library.
 
-The video retains CLI footage from `86e20a4` with its 186-test result. Its later AI
-evidence segment uses `ecbad1c`; the historical Sandbox session used `be15d4a`. The
-recordings preserve their original version labels.
+The video retains CLI footage from `86e20a4` with its 186-test result. Its same-order
+evidence segment presents the November 5 run from `78d7bf3`. The recorded footage and
+saved-run views preserve their source identities; current repository test results are
+reported separately above.
 
 For an offline test of the AI proposal interface, use the deterministic Mock provider:
 

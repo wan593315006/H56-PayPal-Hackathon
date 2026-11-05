@@ -5,9 +5,9 @@ model-generated proposals and a buyer-approved Sandbox purchase. Run them from t
 repository root in PowerShell 5.1 or newer, after the setup in the
 [main README](../README.md).
 
-The [published demonstration video](https://youtu.be/KAn8YssR1hg) shows the recorded
-positive and refusal examples, the real-model evidence view and the historical Sandbox
-transaction. The commands below create your own local runs.
+The [published demonstration video](https://youtu.be/-ykHSPhwSmA) shows recorded CLI
+examples and refusals, followed by the November 5 same-order AI-to-Sandbox evidence
+replay. The commands below create your own local runs.
 
 ## 1. Choose an interpreter and a fresh run name
 

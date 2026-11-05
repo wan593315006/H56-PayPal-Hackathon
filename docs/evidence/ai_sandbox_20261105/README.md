@@ -4,6 +4,9 @@ Recorded on November 5, 2026 using source commit
 [`78d7bf3`](https://github.com/wan593315006/H56-PayPal-Hackathon/tree/78d7bf34060eb4dddbbc1c0ffaaf706456b0b685).
 Environment: PayPal Sandbox, USD 1.00; H56 host-evidence grade `SYNTHETIC_ONLY`.
 
+[Watch the published demonstration](https://youtu.be/-ykHSPhwSmA): the saved evidence
+for this same-order run appears at 1:23–2:37, alongside recorded CLI and refusal examples.
+
 ## Recorded flow
 
 | Stage | Recorded result |
