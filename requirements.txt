@@ -1,1 +1,2 @@
-requests>=2.32,<3
+# Runtime dependencies: Python standard library and the bundled H56 core.
+# CLI, UI, model API and PayPal Sandbox routes need no third-party packages.

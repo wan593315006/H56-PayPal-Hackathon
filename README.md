@@ -94,8 +94,9 @@ the payment policy and H56. The operator selects Sandbox execution through the
 Follow the [demo guide](docs/DEMO_GUIDE.md) for the two service exercises and
 [credential guide](docs/CREDENTIALS.md) for configuration. Model keys use a process
 environment variable such as `H56PAY_MODEL_KEY`; the optional
-[.env.example](.env.example) template covers PayPal configuration. The declared API-mode
-environment can be installed with your chosen interpreter and `requirements.txt`.
+[.env.example](.env.example) template covers PayPal configuration. All routes use the
+Python standard library and bundled core; `requirements.txt` records this dependency
+policy. Configure the selected service's credentials before its exercise.
 
 ## Review decisions and receipts
 

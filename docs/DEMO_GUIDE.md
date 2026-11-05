@@ -104,13 +104,12 @@ service authentication or an order request. The example merchant address is synt
 `max_tokens=512` and a bounded response read. The application sends the request once;
 repeating the command starts another request.
 
-Install the declared API-mode environment if needed, and define `Set-H56ProcessSecret`
-from the [credential guide](CREDENTIALS.md). The following endpoint/model pair was used
+Define `Set-H56ProcessSecret` from the [credential guide](CREDENTIALS.md). The service
+client uses the standard library. The following endpoint/model pair was used
 for the saved DeepSeek exercise; other providers need an HTTPS OpenAI-compatible chat
 completion endpoint and an appropriate model name.
 
 ```powershell
-& $PY -m pip install -r requirements.txt
 $remoteStamp = New-H56Stamp
 try {
     Set-H56ProcessSecret 'H56PAY_MODEL_KEY' 'Model API key'

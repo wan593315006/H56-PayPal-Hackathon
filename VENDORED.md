@@ -186,9 +186,9 @@ register identifies each fixture by file, line and role for source review.
 
 ## Dependency posture
 
-The closure and offline path use the standard library and included dependencies.
-Application integrations live in `app/`; the declared API-mode package range is in
-`requirements.txt`.
+The closure uses the standard library and bundled sources. Application integrations
+in `app/` also use the standard library, including `urllib` for HTTP. The runtime
+dependency declaration in `requirements.txt` adds no third-party packages.
 
 ## How to verify
 

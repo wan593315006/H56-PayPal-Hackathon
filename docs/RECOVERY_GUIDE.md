@@ -51,15 +51,16 @@ Use `py -3.13` if selecting that installed interpreter. The absolute `$PY` path 
 activation-policy differences and ambiguity between installed Python versions. Keeping
 the environment outside the checkout avoids adding packages to the source tree.
 
-The offline route needs no third-party installation. For the declared API-mode
-environment, install its package range when you choose those exercises:
+The CLI, UI, model provider and PayPal Sandbox client use the standard library and
+bundled core. `requirements.txt` contains comments documenting this policy; the
+following compatibility command completes without installing runtime packages:
 
 ```powershell
 & $PY -m pip install -r requirements.txt
 ```
 
-`requirements.txt` declares the supported package range. Record the installed package
-and Python versions alongside results when preserving an environment.
+Record the Python version alongside results when preserving an environment. Keep any
+tools you add for your own development separate from the application's runtime needs.
 
 ## 3. Check source identity and the native chain
 
